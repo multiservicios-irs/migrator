@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>Migrador Universal de Datos</title>
+	<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+	<div class="p-6 grid grid-cols-1 gap-6 max-w-6xl mx-auto">
+		<div class="flex items-center justify-between">
+			<h1 class="text-2xl font-semibold">Migrador Universal de Datos</h1>
+			<a href="/universal" class="rounded-lg border px-4 py-2 hover:bg-slate-50">Modo Universal</a>
+		</div>
+
+		<div th:if="${flash}" class="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900" th:text="${flash}"></div>
+
+		<!-- Connection Profile -->
+		<div class="rounded-2xl shadow border bg-white">
+			<div class="p-4 space-y-3">
+				<h2 class="text-lg font-medium">0. Bases (Origen y Destino)</h2>
+				<form id="mainForm" method="post" action="/test-connection" class="grid grid-cols-1 md:grid-cols-2 gap-4 items-end" onsubmit="return syncMappingsToJson(event);">
+					<div>
+						<label class="text-sm text-slate-700">DB Origen (Nombre)</label>
+						<input id="dbOrigenName" type="text" name="dbOrigenName" class="mt-2 w-full rounded-lg border px-3 py-2 font-semibold" th:value="${dbOrigenName}" placeholder="Ej: deliStore" oninput="syncDbNameToUrl('origen');" />
+					</div>
+					<div>
+						<label class="text-sm text-slate-700">DB Destino (Nombre)</label>
+						<input id="dbDestinoName" type="text" name="dbDestinoName" class="mt-2 w-full rounded-lg border px-3 py-2 font-semibold" th:value="${dbDestinoName}" placeholder="Ej: multi_servicios_db" oninput="syncDbNameToUrl('destino');" />
+					</div>
+					<div>
+						<label class="text-sm text-slate-700">URL JDBC</label>
+						<input id="dbOrigenUrl" type="text" name="dbOrigenUrl" class="mt-2 w-full rounded-lg border px-3 py-2" th:value="${dbOrigenUrl}" placeholder="jdbc:postgresql://localhost:5432/db" />
+					</div>
+					<div>
+						<label class="text-sm text-slate-700">URL JDBC (Destino)</label>
+						<input id="dbDestinoUrl" type="text" name="dbDestinoUrl" class="mt-2 w-full rounded-lg border px-3 py-2" th:value="${dbDestinoUrl}" placeholder="jdbc:postgresql://localhost:5432/multiservicios" />
+					</div>
+					<div>
+						<label class="text-sm text-slate-700">Driver (Origen)</label>
+						<input id="dbOrigenDriver" type="text" name="dbOrigenDriver" class="mt-2 w-full rounded-lg border px-3 py-2" th:value="${dbOrigenDriver}" placeholder="org.postgresql.Driver" />
+					</div>
+					<div>
+						<label class="text-sm text-slate-700">Driver (Destino)</label>
+						<input id="dbDestinoDriver" type="text" name="dbDestinoDriver" class="mt-2 w-full rounded-lg border px-3 py-2" th:value="${dbDestinoDriver}" placeholder="org.postgresql.Driver" />
+					</div>
+					<div>
+						<label class="text-sm text-slate-700">Username (Origen)</label>
+						<input id="dbOrigenUsername" type="text" name="dbOrigenUsername" class="mt-2 w-full rounded-lg border px-3 py-2" th:value="${dbOrigenUsername}" placeholder="usuario" />
+					</div>
+					<div>
+						<label class="text-sm text-slate-700">Password (Origen)</label>
+						<input id="dbOrigenPassword" type="text" name="dbOrigenPassword" class="mt-2 w-full rounded-lg border px-3 py-2" th:value="${dbOrigenPassword}" placeholder="password" />
+					</div>
+					<div>
+						<label class="text-sm text-slate-700">Username (Destino)</label>
+						<input id="dbDestinoUsername" type="text" name="dbDestinoUsername" class="mt-2 w-full rounded-lg border px-3 py-2" th:value="${dbDestinoUsername}" placeholder="usuario" />
+					</div>
+					<div>
+						<label class="text-sm text-slate-700">Password (Destino)</label>
+						<input id="dbDestinoPassword" type="text" name="dbDestinoPassword" class="mt-2 w-full rounded-lg border px-3 py-2" th:value="${dbDestinoPassword}" placeholder="password" />
+					</div>
+					<div class="md:col-span-2 flex gap-3">
+						<button type="submit" formaction="/test-connection" class="rounded-lg border px-4 py-2 hover:bg-slate-50">Probar conexión</button>
+					</div>
+
+					<!-- SQL Extract -->
+					<div class="md:col-span-2 rounded-2xl shadow border bg-white -mx-4">
+						<div class="p-4 space-y-3">
+							<h2 class="text-lg font-medium">1. Consulta SQL (DB Origen)</h2>
+							<textarea name="sql" class="w-full rounded-lg border px-3 py-2 font-mono text-sm" rows="6" placeholder="select 1 as ID, 'Producto demo' as NOMBRE, 10 as CANTIDAD" th:text="${sql}"></textarea>
+							<div class="flex flex-wrap gap-3 items-end">
+								<div>
+									<label class="text-sm text-slate-700">Límite preview</label>
+									<input type="number" name="limit" value="1" min="1" max="500" class="mt-2 w-40 rounded-lg border px-3 py-2" />
+								</div>
+								<button type="submit" formaction="/preview" class="rounded-lg border px-4 py-2 hover:bg-slate-50">Probar SQL</button>
+							</div>
+							<textarea id="mappingsJson" name="mappings" class="hidden" th:text="${mappings}"></textarea>
+						</div>
+					</div>
+
+					<!-- Preview -->
+					<div class="md:col-span-2 rounded-2xl shadow border bg-white -mx-4" th:if="${previewRows}">
+						<div class="p-4 space-y-3">
+							<h2 class="text-lg font-medium">Preview</h2>
+							<div class="overflow-auto">
+								<table class="min-w-full text-sm">
+									<thead class="bg-slate-50">
+										<tr>
+											<th class="text-left px-3 py-2 border-b" th:each="c : ${previewColumns}" th:text="${c}"></th>
+										</tr>
+									</thead>
+									<tbody>
+										<tr class="odd:bg-white even:bg-slate-50" th:each="r : ${previewRows}">
+											<td class="px-3 py-2 border-b" th:each="c : ${previewColumns}" th:text="${r.get(c)}"></td>
+										</tr>
+									</tbody>
+								</table>
+							</div>
+						</div>
+					</div>
+				</form>
+			</div>
+		</div>
+
+		<!-- Mapping -->
+		<div class="rounded-2xl shadow border bg-white">
+			<div class="p-4 space-y-3">
+				<h2 class="text-lg font-medium">2. Mapeo de Campos</h2>
+				<div class="overflow-auto">
+					<table class="min-w-full text-sm">
+						<thead class="bg-slate-50">
+							<tr>
+								<th class="text-left px-3 py-2 border-b">Campo Origen</th>
+								<th class="text-left px-3 py-2 border-b">Campo Destino</th>
+								<th class="text-left px-3 py-2 border-b">Regla</th>
+								<th class="text-left px-3 py-2 border-b"></th>
+							</tr>
+						</thead>
+						<tbody id="mappingTableBody"></tbody>
+					</table>
+				</div>
+				<div class="flex flex-wrap gap-3">
+					<button type="button" class="rounded-lg border px-4 py-2 hover:bg-slate-50" onclick="addMappingRow();">Agregar fila</button>
+					<button type="button" class="rounded-lg border px-4 py-2 hover:bg-slate-50" onclick="loadProductoSchemaTemplate();">Cargar campos de productos</button>
+					<button type="button" class="rounded-lg border px-4 py-2 hover:bg-slate-50" onclick="toggleJson();">Ver JSON</button>
+				</div>
+				<div id="jsonBox" class="hidden">
+					<label class="text-sm text-slate-700">Mapeos (JSON)</label>
+					<textarea id="mappingsJsonMirror" class="mt-2 w-full rounded-lg border px-3 py-2 font-mono text-sm" rows="8"></textarea>
+					<div class="text-xs text-slate-500 mt-2">Este JSON es el que se envía al motor. Si editás el JSON, al ejecutar se intentará leer desde acá.</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Execute -->
+		<div class="rounded-2xl shadow border bg-white">
+			<div class="p-4 space-y-3">
+				<h2 class="text-lg font-medium">3. Ejecución</h2>
+				<div class="flex flex-wrap gap-3">
+					<button type="submit" form="mainForm" formaction="/run" name="dryRun" value="false" class="rounded-lg bg-slate-900 text-white px-4 py-2 hover:bg-slate-800">Ejecutar Migración</button>
+					<button type="submit" form="mainForm" formaction="/run" name="dryRun" value="true" class="rounded-lg border px-4 py-2 hover:bg-slate-50">Dry Run</button>
+				</div>
+				<div th:if="${runResult}" class="text-sm text-slate-700">
+					Resultado: total=<span th:text="${runResult.total}"></span>, ok=<span th:text="${runResult.ok}"></span>, fail=<span th:text="${runResult.fail}"></span>, dryRun=<span th:text="${runResult.dryRun}"></span>
+				</div>
+			</div>
+		</div>
+
+		<!-- Logs -->
+		<div class="rounded-2xl shadow border bg-white">
+			<div class="p-4 space-y-3">
+				<h2 class="text-lg font-medium">4. Logs</h2>
+				<textarea class="w-full rounded-lg border px-3 py-2 font-mono text-sm" rows="6" placeholder="[INFO] Migrando producto ID 25..." readonly
+						th:text="${runLogs != null} ? ${#strings.listJoin(runLogs.![ '[' + level + '] row=' + rowNumber + ' ' + message ], '\n')} : ''"></textarea>
+			</div>
+		</div>
+	</div>
+
+	<!-- Sugerencias de campos destino (DTO real de /api/productos) -->
+	<datalist id="targetFieldsDatalist">
+		<option th:each="f : ${targetFields}" th:value="${f}"></option>
+	</datalist>
+
+	<!-- Columnas detectadas en el preview SQL (origen) -->
+	<datalist id="sourceFieldsDatalist">
+		<option th:each="c : ${previewColumns}" th:value="${c}"></option>
+	</datalist>
+
+	<script>
+		// ============ SINCRONIZACIÓN DB NAME <-> URL JDBC ============
+		function syncDbNameToUrl(tipo) {
+			const nameInput = tipo === 'origen' ? document.getElementById('dbOrigenName') : document.getElementById('dbDestinoName');
+			const urlInput = tipo === 'origen' ? document.getElementById('dbOrigenUrl') : document.getElementById('dbDestinoUrl');
+			if (!nameInput || !urlInput) return;
+
+			const newDbName = nameInput.value.trim();
+			if (!newDbName) return;
+
+			const currentUrl = urlInput.value || '';
+			// Extraer base del URL (sin el nombre de la DB)
+			const match = currentUrl.match(/^(jdbc:[^:]+:\/\/[^/]+\/)([^?]*)(.*)$/);
+			if (match) {
+				// match[1] = "jdbc:postgresql://localhost:5432/"
+				// match[2] = "oldDbName"
+				// match[3] = "?params" (opcional)
+				urlInput.value = match[1] + newDbName + (match[3] || '');
+			} else {
+				// Si no hay URL válido, crear uno por defecto
+				urlInput.value = 'jdbc:postgresql://localhost:5432/' + newDbName;
+			}
+		}
+
+		// Al cargar la página, sincronizar nombres desde URL (por si hay inconsistencia)
+		function extractDbNameFromUrl(jdbcUrl) {
+			if (!jdbcUrl) return '';
+			const match = jdbcUrl.match(/\/([^/?]+)(\?.*)?$/);
+			return match ? match[1] : '';
+		}
+
+		function initDbNames() {
+			const origenUrl = document.getElementById('dbOrigenUrl');
+			const destinoUrl = document.getElementById('dbDestinoUrl');
+			const origenName = document.getElementById('dbOrigenName');
+			const destinoName = document.getElementById('dbDestinoName');
+
+			// Si el nombre está vacío o no coincide con el URL, sincronizar desde URL
+			if (origenUrl && origenName) {
+				const urlDb = extractDbNameFromUrl(origenUrl.value);
+				if (urlDb && origenName.value.trim() !== urlDb) {
+					origenName.value = urlDb;
+				}
+			}
+			if (destinoUrl && destinoName) {
+				const urlDb = extractDbNameFromUrl(destinoUrl.value);
+				if (urlDb && destinoName.value.trim() !== urlDb) {
+					destinoName.value = urlDb;
+				}
+			}
+		}
+
+		// Ejecutar al cargar
+		document.addEventListener('DOMContentLoaded', initDbNames);
+		// ============ FIN SINCRONIZACIÓN ============
+
+		function clearMappingsTable() {
+			const body = document.getElementById('mappingTableBody');
+			if (!body) return;
+			body.innerHTML = '';
+		}
+
+		function addSeparatorRow(label) {
+			const body = document.getElementById('mappingTableBody');
+			if (!body) return;
+			const tr = document.createElement('tr');
+			tr.className = 'border-b';
+			tr.innerHTML = `
+				<td colspan="4" class="px-3 py-2">
+					<div class="flex items-center gap-3">
+						<div class="flex-1 border-t"></div>
+						<div class="text-xs font-semibold text-slate-500">${escapeHtmlAttr(label || 'Separador')}</div>
+						<div class="flex-1 border-t"></div>
+					</div>
+				</td>
+			`;
+			body.appendChild(tr);
+		}
+
+		function camelToSnakeLower(s) {
+			return (s || '')
+				.replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+				.replace(/-/g, '_')
+				.toLowerCase();
+		}
+
+		function suggestSourceForTarget(target) {
+			if (!target) return '';
+			if (target === 'stock') return 'existencia';
+			if (target === 'depositoId') return 'deposito_id';
+			if (!target.startsWith('producto.')) return '';
+			const field = target.substring('producto.'.length);
+			const overrides = {
+				codigoBarra: 'cod_barras',
+				nombre: 'descripcion',
+				descripcion: 'obs',
+				marcaId: 'id_marca',
+				unidadMedidaId: 'id_unidad_medida',
+				categoriaId: 'id_categoria',
+				precioDeCompra: 'costo_ultimo',
+				precioMinorista: 'venta1',
+				precioMayorista: 'venta2',
+				precioCredito: 'venta3',
+				ivaPercent: 'iva',
+				stockMin: 'minimo',
+				imagenUrl: 'imagen_url',
+				activo: 'habilitado'
+			};
+			if (overrides[field]) return overrides[field];
+			return camelToSnakeLower(field);
+		}
+
+		function getAvailableSourceColumns() {
+			return Array.from(document.querySelectorAll('#sourceFieldsDatalist option'))
+				.map(o => (o.value || '').trim())
+				.filter(v => v.length > 0);
+		}
+
+		function findSourceColumn(candidates) {
+			const available = getAvailableSourceColumns();
+			if (!available.length) {
+				return '';
+			}
+			const availableLower = new Map(available.map(v => [v.toLowerCase(), v]));
+			for (const c of (candidates || [])) {
+				const key = (c || '').trim();
+				if (!key) continue;
+				const hit = availableLower.get(key.toLowerCase());
+				if (hit) return hit;
+			}
+			return '';
+		}
+
+		function bestSourceForTarget(target) {
+			if (!target) return '';
+			// Primero, intentar aliases directos típicos del destino
+			if (target === 'stockPorDeposito[0].cantidad') {
+				return findSourceColumn(['stock', 'cantidad', 'existencia', 'qty', 'CANTIDAD', 'STOCK']);
+			}
+			if (target === 'stockPorDeposito[0].depositoId') {
+				return findSourceColumn(['depositoId', 'deposito_id', 'deposito', 'DEPOSITO_ID']);
+			}
+			if (target === 'stock') {
+				return findSourceColumn(['stock', 'existencia', 'cantidad', 'qty', 'STOCK']);
+			}
+			if (target === 'depositoId') {
+				return findSourceColumn(['depositoId', 'deposito_id', 'deposito', 'DEPOSITO_ID']);
+			}
+
+			// Para producto.* usar el sugeridor legacy, pero solo si existe en preview
+			const suggested = suggestSourceForTarget(target);
+			if (suggested) {
+				const found = findSourceColumn([suggested, suggested.toUpperCase(), suggested.toLowerCase()]);
+				if (found) return found;
+			}
+
+			// Fallback: intentar con el nombre del campo (camelCase) y snake_case
+			if (target.startsWith('producto.')) {
+				const field = target.substring('producto.'.length);
+				return findSourceColumn([field, camelToSnakeLower(field), field.toUpperCase(), camelToSnakeLower(field).toUpperCase()]);
+			}
+			return '';
+		}
+
+		function loadDefaultMappingsTemplate() {
+			clearMappingsTable();
+
+			// Base mínima (no inventar columnas; usar preview si existe)
+			addMappingRow({ source: bestSourceForTarget('producto.nombre'), target: 'producto.nombre', type: 'DIRECTO' });
+			addSeparatorRow('STOCK');
+			addMappingRow({ source: bestSourceForTarget('stockPorDeposito[0].cantidad'), target: 'stockPorDeposito[0].cantidad', type: 'DIRECTO' });
+			addMappingRow({ target: 'stockPorDeposito[0].depositoId', type: 'DEFAULT', value: 'depositoCentralId' });
+		}
+
+		// Template completo ("cargar más campos") pero sin inventar columnas: solo prellenar
+		// el campo origen si existe en preview.
+		function loadProductoSchemaTemplate() {
+			clearMappingsTable();
+
+			addMappingRow({ source: bestSourceForTarget('producto.codigoBarra'), target: 'producto.codigoBarra', type: 'DIRECTO' });
+			addMappingRow({ source: bestSourceForTarget('producto.nombre'), target: 'producto.nombre', type: 'DIRECTO' });
+			addMappingRow({ source: bestSourceForTarget('producto.descripcion'), target: 'producto.descripcion', type: 'DIRECTO' });
+
+			addMappingRow({ source: bestSourceForTarget('producto.marcaId'), target: 'producto.marcaId', type: 'DEFAULT', value: 'marcaGenericaId' });
+			addMappingRow({ source: bestSourceForTarget('producto.categoriaId'), target: 'producto.categoriaId', type: 'DEFAULT', value: 'categoriaGenericaId' });
+			addMappingRow({ source: bestSourceForTarget('producto.unidadMedidaId'), target: 'producto.unidadMedidaId', type: 'DEFAULT', value: 'unidadMedidaGenericaId' });
+
+			addMappingRow({ source: bestSourceForTarget('producto.precioDeCompra'), target: 'producto.precioDeCompra', type: 'DIRECTO' });
+			addMappingRow({ source: bestSourceForTarget('producto.precioMinorista'), target: 'producto.precioMinorista', type: 'DIRECTO' });
+			addMappingRow({ source: bestSourceForTarget('producto.precioMayorista'), target: 'producto.precioMayorista', type: 'DIRECTO' });
+			addMappingRow({ source: bestSourceForTarget('producto.precioCredito'), target: 'producto.precioCredito', type: 'DIRECTO' });
+			addMappingRow({ source: bestSourceForTarget('producto.ivaPercent'), target: 'producto.ivaPercent', type: 'DIRECTO' });
+			addMappingRow({ source: bestSourceForTarget('producto.stockMin'), target: 'producto.stockMin', type: 'DIRECTO' });
+			addMappingRow({ source: bestSourceForTarget('producto.serializable'), target: 'producto.serializable', type: 'DIRECTO' });
+			addMappingRow({ source: bestSourceForTarget('producto.tipo'), target: 'producto.tipo', type: 'DIRECTO' });
+			addMappingRow({ source: bestSourceForTarget('producto.imagenUrl'), target: 'producto.imagenUrl', type: 'DIRECTO' });
+
+			// Nota: los campos de auditoría (activo/createdBy/updatedBy) no se cargan por defecto.
+
+			addSeparatorRow('STOCK');
+			addMappingRow({ source: bestSourceForTarget('stockPorDeposito[0].cantidad'), target: 'stockPorDeposito[0].cantidad', type: 'DIRECTO' });
+			addMappingRow({ source: bestSourceForTarget('stockPorDeposito[0].depositoId'), target: 'stockPorDeposito[0].depositoId', type: 'DEFAULT', value: 'depositoCentralId' });
+		}
+
+		function readMappingsFromJsonBoxIfPresent() {
+			const mirror = document.getElementById('mappingsJsonMirror');
+			if (!mirror) return null;
+			const v = (mirror.value || '').trim();
+			return v.length > 0 ? v : null;
+		}
+
+		function toggleJson() {
+			const box = document.getElementById('jsonBox');
+			box.classList.toggle('hidden');
+			if (!box.classList.contains('hidden')) {
+				try { document.getElementById('mappingsJsonMirror').value = serializeMappings(); } catch (e) {}
+			}
+		}
+
+		function addMappingRow(row) {
+			const body = document.getElementById('mappingTableBody');
+			const tr = document.createElement('tr');
+			tr.className = 'border-b';
+
+			const source = (row && row.source) ? row.source : '';
+			const target = (row && row.target) ? row.target : '';
+			const type = (row && row.type) ? row.type : 'DIRECTO';
+			const value = (row && row.value) ? row.value : '';
+
+			tr.innerHTML = `
+				<td class="px-3 py-2">
+					<input class="w-full rounded-lg border px-3 py-2" list="sourceFieldsDatalist" placeholder="Campo origen" value="${escapeHtmlAttr(source)}" data-field="source" />
+				</td>
+				<td class="px-3 py-2">
+					<input class="w-full rounded-lg border px-3 py-2" list="targetFieldsDatalist" placeholder="Campo destino (ej: producto.nombre, stock, depositoId)" value="${escapeHtmlAttr(target)}" data-field="target" />
+				</td>
+				<td class="px-3 py-2">
+					<div class="flex gap-2 items-center">
+						<select class="rounded-lg border px-3 py-2" data-field="type" onchange="onTypeChanged(this)">
+							<option value="DIRECTO">Directo</option>
+							<option value="CONSTANTE">Valor fijo</option>
+							<option value="DEFAULT">Default</option>
+							<option value="EXPRESION">Expresión</option>
+						</select>
+						<input class="flex-1 rounded-lg border px-3 py-2" placeholder="valor / key default / spel" value="${escapeHtmlAttr(value)}" data-field="value" />
+					</div>
+				</td>
+				<td class="px-3 py-2 text-right">
+					<button type="button" class="rounded-lg border px-3 py-2 hover:bg-slate-50" onclick="this.closest('tr').remove();">Quitar</button>
+				</td>
+			`;
+
+			body.appendChild(tr);
+			tr.querySelector('select[data-field="type"]').value = type;
+			onTypeChanged(tr.querySelector('select[data-field="type"]'));
+		}
+
+		function onTypeChanged(selectEl) {
+			const tr = selectEl.closest('tr');
+			const valueInput = tr.querySelector('input[data-field="value"]');
+			const type = selectEl.value;
+			if (type === 'DIRECTO') {
+				valueInput.disabled = true;
+				valueInput.value = '';
+				valueInput.placeholder = '';
+			} else if (type === 'DEFAULT') {
+				valueInput.disabled = false;
+				valueInput.placeholder = 'depositoCentralId / marcaGenericaId / ...';
+			} else if (type === 'CONSTANTE') {
+				valueInput.disabled = false;
+				valueInput.placeholder = 'valor fijo';
+			} else {
+				valueInput.disabled = false;
+				valueInput.placeholder = "#row['CAMPO']";
+			}
+		}
+
+		function serializeMappings() {
+			const rows = Array.from(document.querySelectorAll('#mappingTableBody tr'));
+			const mappings = rows.map(tr => {
+				// Ignorar filas separadoras u otras filas no editables
+				const sourceEl = tr.querySelector('[data-field="source"]');
+				const targetEl = tr.querySelector('[data-field="target"]');
+				const typeEl = tr.querySelector('[data-field="type"]');
+				const valueEl = tr.querySelector('[data-field="value"]');
+				if (!sourceEl || !targetEl || !typeEl || !valueEl) {
+					return null;
+				}
+
+				const source = (sourceEl.value || '').trim();
+				const target = (targetEl.value || '').trim();
+				const type = typeEl.value;
+				const value = valueEl.disabled ? '' : valueEl.value;
+				const m = { target: target, type: type };
+				if (source) { m.source = source; }
+				if (!valueEl.disabled && value && value.trim().length > 0) { m.value = value; }
+				return m;
+			}).filter(m => m && m.target && m.target.length > 0);
+			return JSON.stringify(mappings, null, 2);
+		}
+
+		function syncMappingsToJson(evt) {
+			// Si el usuario abrió el JSON box y editó el JSON, intentamos usar ese.
+			const fromBox = readMappingsFromJsonBoxIfPresent();
+			let json;
+			if (fromBox) {
+				json = fromBox;
+			} else {
+				try {
+					json = serializeMappings();
+				} catch (e) {
+					alert('No se pudo serializar el mapeo. Revisá si hay filas incompletas y volvé a intentar.');
+					return false;
+				}
+			}
+
+			// Validación: al ejecutar /run, evitar que el usuario corra con columnas que no existen
+			// (esto genera errores masivos como "producto.nombre es requerido").
+			try {
+				const submitter = evt && evt.submitter ? evt.submitter : null;
+				const formAction = submitter ? (submitter.getAttribute('formaction') || '') : '';
+				const isRun = formAction && formAction.toLowerCase().endsWith('/run');
+				if (isRun) {
+					const available = getAvailableSourceColumns();
+					if (available && available.length > 0) {
+						const availableLower = new Set(available.map(v => (v || '').toLowerCase()));
+						let mappings;
+						try {
+							mappings = JSON.parse(json);
+						} catch (e) {
+							mappings = null;
+						}
+						if (Array.isArray(mappings)) {
+							const invalid = [];
+							for (const m of mappings) {
+								if (!m) continue;
+								const type = (m.type || '').toUpperCase();
+								if (type !== 'DIRECTO') continue;
+								const source = (m.source || '').trim();
+								if (!source) continue;
+								if (!availableLower.has(source.toLowerCase())) {
+									invalid.push({ source, target: (m.target || '').trim() });
+								}
+							}
+							if (invalid.length > 0) {
+								const first = invalid[0];
+								alert(
+									"No se puede ejecutar: el mapeo usa columnas que NO existen en el Preview.\n\n" +
+									"Ejemplo: Campo Origen='" + first.source + "' -> Campo Destino='" + (first.target || '(sin destino)') + "'\n\n" +
+									"Solución: elegí una columna real del Preview (por ejemplo 'descripcion' para el nombre) o agregá alias en el SQL (ej: descripcion as NOMBRE)."
+								);
+								return false;
+							}
+						}
+					}
+				}
+			} catch (e) {
+				// no bloquear por validación
+			}
+
+			const hidden = document.getElementById('mappingsJson');
+			if (hidden) hidden.value = json;
+			return true;
+		}
+
+		function escapeHtmlAttr(s) {
+			return (s || '')
+				.replaceAll('&', '&amp;')
+				.replaceAll('"', '&quot;')
+				.replaceAll("'", '&#39;')
+				.replaceAll('<', '&lt;')
+				.replaceAll('>', '&gt;');
+		}
+
+		(function initMappingsTable() {
+			let raw = '';
+			const hidden = document.getElementById('mappingsJson');
+			if (hidden && hidden.value) raw = hidden.value;
+
+			function sourceExistsInPreview(source) {
+				const s = (source || '').trim();
+				if (!s) return false;
+				const available = getAvailableSourceColumns();
+				if (!available.length) return false;
+				return available.some(a => (a || '').toLowerCase() === s.toLowerCase());
+			}
+
+			function autoFixKeyMappingsFromPreview() {
+				// Solo corregimos targets críticos para evitar errores masivos.
+				const rows = Array.from(document.querySelectorAll('#mappingTableBody tr'));
+				for (const tr of rows) {
+					const sourceEl = tr.querySelector('[data-field="source"]');
+					const targetEl = tr.querySelector('[data-field="target"]');
+					const typeEl = tr.querySelector('[data-field="type"]');
+					if (!sourceEl || !targetEl || !typeEl) continue;
+					const target = (targetEl.value || '').trim();
+					const type = (typeEl.value || '').trim();
+					if (type !== 'DIRECTO') continue;
+
+					if (target === 'producto.nombre' || target === 'stockPorDeposito[0].cantidad') {
+						const current = (sourceEl.value || '').trim();
+						if (!current || !sourceExistsInPreview(current)) {
+							const best = bestSourceForTarget(target);
+							if (best) {
+								sourceEl.value = best;
+							}
+						}
+					}
+				}
+			}
+
+			try {
+				const parsed = raw ? JSON.parse(raw) : [];
+				if (Array.isArray(parsed) && parsed.length > 0) {
+					parsed.forEach(m => addMappingRow(m));
+					autoFixKeyMappingsFromPreview();
+					return;
+				}
+			} catch (e) {
+				// si el JSON está mal, igual dejamos una fila vacía
+			}
+			// Si no vienen mapeos (o el JSON es inválido), precargamos un template mínimo.
+			loadDefaultMappingsTemplate();
+			autoFixKeyMappingsFromPreview();
+		})();
+	</script>
+</body>
+</html>

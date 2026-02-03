@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>Migrador Universal de Datos (Universal)</title>
+	<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+	<div class="p-6 grid grid-cols-1 gap-6 max-w-6xl mx-auto">
+		<div class="flex items-center justify-between">
+			<h1 class="text-2xl font-semibold">Migrador Universal de Datos — Universal</h1>
+			<a href="/" class="rounded-lg border px-4 py-2 hover:bg-slate-50">Volver a Productos</a>
+		</div>
+
+		<div th:if="${flash}" class="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900" th:text="${flash}"></div>
+
+		<div class="rounded-2xl shadow border bg-white">
+			<div class="p-4 space-y-3">
+				<h2 class="text-lg font-medium">0. Bases (Origen y Destino)</h2>
+				<form id="universalForm" method="post" action="/universal/run" class="grid grid-cols-1 md:grid-cols-2 gap-4 items-end" onsubmit="return syncMappingsToJson(event);">
+					<div>
+						<label class="text-sm text-slate-700">DB Origen (Nombre)</label>
+						<input type="text" name="dbOrigenName" class="mt-2 w-full rounded-lg border px-3 py-2 font-semibold" th:value="${dbOrigenName}" />
+					</div>
+					<div>
+						<label class="text-sm text-slate-700">DB Destino (Nombre)</label>
+						<input type="text" name="dbDestinoName" class="mt-2 w-full rounded-lg border px-3 py-2 font-semibold" th:value="${dbDestinoName}" />
+					</div>
+					<div>
+						<label class="text-sm text-slate-700">URL JDBC (Origen)</label>
+						<input type="text" name="dbOrigenUrl" class="mt-2 w-full rounded-lg border px-3 py-2" th:value="${dbOrigenUrl}" />
+					</div>
+					<div>
+						<label class="text-sm text-slate-700">URL JDBC (Destino)</label>
+						<input type="text" name="dbDestinoUrl" class="mt-2 w-full rounded-lg border px-3 py-2" th:value="${dbDestinoUrl}" />
+					</div>
+					<div>
+						<label class="text-sm text-slate-700">Driver (Origen)</label>
+						<input type="text" name="dbOrigenDriver" class="mt-2 w-full rounded-lg border px-3 py-2" th:value="${dbOrigenDriver}" />
+					</div>
+					<div>
+						<label class="text-sm text-slate-700">Driver (Destino)</label>
+						<input type="text" name="dbDestinoDriver" class="mt-2 w-full rounded-lg border px-3 py-2" th:value="${dbDestinoDriver}" />
+					</div>
+					<div>
+						<label class="text-sm text-slate-700">Username (Origen)</label>
+						<input type="text" name="dbOrigenUsername" class="mt-2 w-full rounded-lg border px-3 py-2" th:value="${dbOrigenUsername}" />
+					</div>
+					<div>
+						<label class="text-sm text-slate-700">Password (Origen)</label>
+						<input type="text" name="dbOrigenPassword" class="mt-2 w-full rounded-lg border px-3 py-2" th:value="${dbOrigenPassword}" />
+					</div>
+					<div>
+						<label class="text-sm text-slate-700">Username (Destino)</label>
+						<input type="text" name="dbDestinoUsername" class="mt-2 w-full rounded-lg border px-3 py-2" th:value="${dbDestinoUsername}" />
+					</div>
+					<div>
+						<label class="text-sm text-slate-700">Password (Destino)</label>
+						<input type="text" name="dbDestinoPassword" class="mt-2 w-full rounded-lg border px-3 py-2" th:value="${dbDestinoPassword}" />
+					</div>
+
+					<div class="md:col-span-2 rounded-2xl border bg-slate-50 p-4">
+						<h3 class="font-medium">1. SQL (Origen)</h3>
+						<textarea name="sql" class="mt-2 w-full rounded-lg border px-3 py-2 font-mono text-sm" rows="6" th:text="${sql}" placeholder="select id, descripcion as nombre from tabla_origen"></textarea>
+					</div>
+
+					<div class="md:col-span-2 rounded-2xl border bg-slate-50 p-4 grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+						<div>
+							<label class="text-sm text-slate-700">Schema destino</label>
+							<input id="destSchema" type="text" name="destSchema" class="mt-2 w-full rounded-lg border px-3 py-2" th:value="${destSchema}" />
+						</div>
+						<div>
+							<label class="text-sm text-slate-700">Tabla destino</label>
+							<select id="destTable" name="destTable" class="mt-2 w-full rounded-lg border px-3 py-2"></select>
+						</div>
+						<div class="flex gap-2">
+							<button type="button" class="mt-6 rounded-lg border px-4 py-2 hover:bg-white" onclick="refreshTables()">Cargar tablas</button>
+							<button type="button" class="mt-6 rounded-lg border px-4 py-2 hover:bg-white" onclick="loadDestColumns()">Cargar columnas</button>
+						</div>
+					</div>
+
+					<textarea id="mappingsJson" name="mappings" class="hidden" th:text="${mappings}"></textarea>
+
+					<div class="md:col-span-2 rounded-2xl border bg-white p-4 space-y-3">
+						<div class="flex items-center justify-between">
+							<h3 class="font-medium">2. Mapeo de Campos (Manual)</h3>
+							<div class="flex gap-2">
+								<button type="button" class="rounded-lg border px-4 py-2 hover:bg-slate-50" onclick="addMappingRow({})">Agregar fila</button>
+								<button type="button" class="rounded-lg border px-4 py-2 hover:bg-slate-50" onclick="toggleJson()">Ver JSON</button>
+							</div>
+						</div>
+
+						<div class="overflow-auto">
+							<table class="min-w-full text-sm">
+								<thead class="bg-slate-50">
+									<tr>
+										<th class="text-left px-3 py-2 border-b">Campo Origen (columna SQL)</th>
+										<th class="text-left px-3 py-2 border-b">Campo Destino (columna tabla)</th>
+										<th class="text-left px-3 py-2 border-b">Regla</th>
+										<th class="text-left px-3 py-2 border-b"></th>
+									</tr>
+								</thead>
+								<tbody id="mappingTableBody"></tbody>
+							</table>
+						</div>
+
+						<div id="jsonBox" class="hidden">
+							<textarea id="mappingsJsonMirror" class="mt-2 w-full rounded-lg border px-3 py-2 font-mono text-sm" rows="10"></textarea>
+						</div>
+					</div>
+
+					<div class="md:col-span-2 flex items-center gap-4">
+						<button type="submit" formaction="/universal/run" class="rounded-lg bg-slate-900 text-white px-4 py-2 hover:bg-slate-800">Ejecutar Migración</button>
+						<label class="flex items-center gap-2 text-sm">
+							<input type="checkbox" name="dryRun" value="true" checked /> Dry Run
+						</label>
+					</div>
+
+					<div class="md:col-span-2" th:if="${runResult}">
+						<div class="rounded-xl border bg-emerald-50 border-emerald-200 px-4 py-3 text-emerald-900" th:text="'Resultado: total=' + ${runResult.total()} + ', ok=' + ${runResult.ok()} + ', fail=' + ${runResult.fail()} + ', dryRun=' + ${runResult.dryRun()}" />
+					</div>
+
+					<div class="md:col-span-2" th:if="${runLogs}">
+						<h3 class="text-lg font-medium mt-4">Logs</h3>
+						<div class="rounded-xl border bg-white p-3 max-h-96 overflow-auto font-mono text-xs">
+							<div th:each="e : ${runLogs}">
+								<span th:text="'[' + ${e.level()} + '] row=' + ${e.rowNumber()} + ' ' + ${e.message()}" />
+							</div>
+						</div>
+					</div>
+				</form>
+			</div>
+		</div>
+	</div>
+
+	<script>
+		function addMappingRow(row) {
+			const body = document.getElementById('mappingTableBody');
+			const tr = document.createElement('tr');
+			tr.className = 'border-b';
+			const source = (row && row.source) ? row.source : '';
+			const target = (row && row.target) ? row.target : '';
+			const type = (row && row.type) ? row.type : 'DIRECTO';
+			const value = (row && row.value) ? row.value : '';
+
+			tr.innerHTML = `
+				<td class="px-3 py-2">
+					<input class="w-full rounded-lg border px-3 py-2" placeholder="columna_origen" value="${escapeHtmlAttr(source)}" data-field="source" />
+				</td>
+				<td class="px-3 py-2">
+					<input class="w-full rounded-lg border px-3 py-2" list="destColumnsDatalist" placeholder="columna_destino" value="${escapeHtmlAttr(target)}" data-field="target" />
+				</td>
+				<td class="px-3 py-2">
+					<div class="flex gap-2 items-center">
+						<select class="rounded-lg border px-3 py-2" data-field="type" onchange="onTypeChanged(this)">
+							<option value="DIRECTO">Directo</option>
+							<option value="CONSTANTE">Valor fijo</option>
+							<option value="DEFAULT">Default</option>
+							<option value="EXPRESION">Expresión</option>
+						</select>
+						<input class="flex-1 rounded-lg border px-3 py-2" placeholder="valor / key default / spel" value="${escapeHtmlAttr(value)}" data-field="value" />
+					</div>
+				</td>
+				<td class="px-3 py-2 text-right">
+					<button type="button" class="rounded-lg border px-3 py-2 hover:bg-slate-50" onclick="this.closest('tr').remove();">Quitar</button>
+				</td>
+			`;
+
+			body.appendChild(tr);
+			tr.querySelector('select[data-field="type"]').value = type;
+			onTypeChanged(tr.querySelector('select[data-field="type"]'));
+		}
+
+		function onTypeChanged(selectEl) {
+			const tr = selectEl.closest('tr');
+			const valueInput = tr.querySelector('input[data-field="value"]');
+			const type = selectEl.value;
+			if (type === 'DIRECTO') {
+				valueInput.disabled = true;
+				valueInput.value = '';
+				valueInput.placeholder = '';
+			} else if (type === 'DEFAULT') {
+				valueInput.disabled = false;
+				valueInput.placeholder = 'depositoCentralId / ...';
+			} else if (type === 'CONSTANTE') {
+				valueInput.disabled = false;
+				valueInput.placeholder = 'valor fijo';
+			} else {
+				valueInput.disabled = false;
+				valueInput.placeholder = "#row['CAMPO']";
+			}
+		}
+
+		function serializeMappings() {
+			const rows = Array.from(document.querySelectorAll('#mappingTableBody tr'));
+			const mappings = rows.map(tr => {
+				const sourceEl = tr.querySelector('[data-field="source"]');
+				const targetEl = tr.querySelector('[data-field="target"]');
+				const typeEl = tr.querySelector('[data-field="type"]');
+				const valueEl = tr.querySelector('[data-field="value"]');
+				if (!sourceEl || !targetEl || !typeEl || !valueEl) return null;
+
+				const source = (sourceEl.value || '').trim();
+				const target = (targetEl.value || '').trim();
+				const type = typeEl.value;
+				const value = valueEl.disabled ? '' : valueEl.value;
+				const m = { target: target, type: type };
+				if (source) { m.source = source; }
+				if (!valueEl.disabled && value && value.trim().length > 0) { m.value = value; }
+				return m;
+			}).filter(m => m && m.target && m.target.length > 0);
+			return JSON.stringify(mappings, null, 2);
+		}
+
+		function readMappingsFromJsonBoxIfPresent() {
+			const mirror = document.getElementById('mappingsJsonMirror');
+			if (!mirror) return null;
+			const v = (mirror.value || '').trim();
+			return v.length > 0 ? v : null;
+		}
+
+		function syncMappingsToJson(evt) {
+			const fromBox = readMappingsFromJsonBoxIfPresent();
+			let json;
+			if (fromBox) {
+				json = fromBox;
+			} else {
+				try { json = serializeMappings(); }
+				catch (e) {
+					alert('No se pudo serializar el mapeo.');
+					return false;
+				}
+			}
+			const hidden = document.getElementById('mappingsJson');
+			if (hidden) hidden.value = json;
+			return true;
+		}
+
+		function toggleJson() {
+			const box = document.getElementById('jsonBox');
+			box.classList.toggle('hidden');
+			if (!box.classList.contains('hidden')) {
+				try { document.getElementById('mappingsJsonMirror').value = serializeMappings(); } catch (e) {}
+			}
+		}
+
+		function escapeHtmlAttr(s) {
+			return (s || '')
+				.replaceAll('&', '&amp;')
+				.replaceAll('"', '&quot;')
+				.replaceAll("'", '&#39;')
+				.replaceAll('<', '&lt;')
+				.replaceAll('>', '&gt;');
+		}
+
+		async function refreshTables() {
+			const form = document.getElementById('universalForm');
+			const data = new FormData(form);
+			data.append('schema', (document.getElementById('destSchema').value || 'public').trim());
+			const res = await fetch('/universal/list-tables', { method: 'POST', body: data });
+			if (!res.ok) {
+				alert('No se pudo listar tablas del destino');
+				return;
+			}
+			const tables = await res.json();
+			const select = document.getElementById('destTable');
+			select.innerHTML = '';
+			for (const t of tables) {
+				const opt = document.createElement('option');
+				opt.value = t;
+				opt.textContent = t;
+				select.appendChild(opt);
+			}
+			// re-seleccionar si el servidor mandó destTable
+			const initial = "[[${destTable}]]";
+			if (initial && initial.length > 0) {
+				select.value = initial;
+			}
+		}
+
+		async function loadDestColumns() {
+			const form = document.getElementById('universalForm');
+			const schema = (document.getElementById('destSchema').value || 'public').trim();
+			const table = (document.getElementById('destTable').value || '').trim();
+			if (!table) {
+				alert('Elegí una tabla destino');
+				return;
+			}
+			const data = new FormData(form);
+			data.append('schema', schema);
+			data.append('table', table);
+			const res = await fetch('/universal/describe-table', { method: 'POST', body: data });
+			if (!res.ok) {
+				alert('No se pudo leer columnas de la tabla');
+				return;
+			}
+			const cols = await res.json();
+			let datalist = document.getElementById('destColumnsDatalist');
+			if (!datalist) {
+				datalist = document.createElement('datalist');
+				datalist.id = 'destColumnsDatalist';
+				document.body.appendChild(datalist);
+			}
+			datalist.innerHTML = '';
+			for (const c of cols) {
+				const opt = document.createElement('option');
+				opt.value = c;
+				datalist.appendChild(opt);
+			}
+		}
+
+		(function init() {
+			// cargar mapeos desde el hidden
+			try {
+				const raw = (document.getElementById('mappingsJson').value || '').trim();
+				const parsed = raw ? JSON.parse(raw) : [];
+				if (Array.isArray(parsed) && parsed.length > 0) {
+					parsed.forEach(m => addMappingRow(m));
+				} else {
+					addMappingRow({});
+				}
+			} catch (e) {
+				addMappingRow({});
+			}
+			refreshTables();
+		})();
+	</script>
+</body>
+</html>
