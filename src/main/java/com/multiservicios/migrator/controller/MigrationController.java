@@ -94,6 +94,27 @@ public class MigrationController {
 		return "index";
 	}
 
+	@PostMapping("/clear-logs")
+	public String clearLogs(Model model,
+			@RequestParam(name = "dbOrigenName", required = false) String dbOrigenName,
+			@RequestParam(name = "dbOrigenUrl", required = false) String dbOrigenUrl,
+			@RequestParam(name = "dbOrigenUsername", required = false) String dbOrigenUsername,
+			@RequestParam(name = "dbOrigenPassword", required = false) String dbOrigenPassword,
+			@RequestParam(name = "dbOrigenDriver", required = false) String dbOrigenDriver,
+			@RequestParam(name = "dbDestinoName", required = false) String dbDestinoName,
+			@RequestParam(name = "dbDestinoUrl", required = false) String dbDestinoUrl,
+			@RequestParam(name = "dbDestinoUsername", required = false) String dbDestinoUsername,
+			@RequestParam(name = "dbDestinoPassword", required = false) String dbDestinoPassword,
+			@RequestParam(name = "dbDestinoDriver", required = false) String dbDestinoDriver,
+			@RequestParam(name = "sql", required = false) String sql,
+			@RequestParam(name = "mappings", required = false) String mappings) {
+		logService.clear();
+		model.addAttribute("flash", "✓ Logs limpiados");
+		return index(model, dbOrigenName, dbOrigenUrl, dbOrigenUsername, dbOrigenPassword, dbOrigenDriver,
+				dbDestinoName, dbDestinoUrl, dbDestinoUsername, dbDestinoPassword, dbDestinoDriver,
+				sql, mappings);
+	}
+
 	private static String coalesce(String value, String fallback) {
 		if (value == null) {
 			return fallback;
@@ -387,10 +408,24 @@ public class MigrationController {
 	}
 
 	private String defaultMappingsJson() {
-		// No asumir nombres de columnas del origen (ej: NOMBRE/CANTIDAD). La UI puede auto-sugerir
-		// cuando existe preview, o el usuario elige la columna real.
+		// No asumir nombres de columnas del origen. La UI completa source solo si existe en el preview.
+		// Importante: incluimos precios por defecto para evitar migraciones sin precios.
 		return "[\n" +
+				"  { \"target\": \"producto.codigoBarra\", \"type\": \"DIRECTO\" },\n" +
 				"  { \"target\": \"producto.nombre\", \"type\": \"DIRECTO\" },\n" +
+				"  { \"target\": \"producto.descripcion\", \"type\": \"DIRECTO\" },\n" +
+				"  { \"target\": \"producto.marcaId\", \"type\": \"DEFAULT\", \"value\": \"marcaGenericaId\" },\n" +
+				"  { \"target\": \"producto.categoriaId\", \"type\": \"DEFAULT\", \"value\": \"categoriaGenericaId\" },\n" +
+				"  { \"target\": \"producto.unidadMedidaId\", \"type\": \"DEFAULT\", \"value\": \"unidadMedidaGenericaId\" },\n" +
+				"  { \"target\": \"producto.precioDeCompra\", \"type\": \"DIRECTO\" },\n" +
+				"  { \"target\": \"producto.precioMinorista\", \"type\": \"DIRECTO\" },\n" +
+				"  { \"target\": \"producto.precioMayorista\", \"type\": \"DIRECTO\" },\n" +
+				"  { \"target\": \"producto.precioCredito\", \"type\": \"DIRECTO\" },\n" +
+				"  { \"target\": \"producto.ivaPercent\", \"type\": \"DIRECTO\" },\n" +
+				"  { \"target\": \"producto.stockMin\", \"type\": \"DIRECTO\" },\n" +
+				"  { \"target\": \"producto.serializable\", \"type\": \"DIRECTO\" },\n" +
+				"  { \"target\": \"producto.tipo\", \"type\": \"DIRECTO\" },\n" +
+				"  { \"target\": \"producto.imagenUrl\", \"type\": \"DIRECTO\" },\n" +
 				"  { \"target\": \"stockPorDeposito[0].cantidad\", \"type\": \"DIRECTO\" },\n" +
 				"  { \"target\": \"stockPorDeposito[0].depositoId\", \"type\": \"DEFAULT\", \"value\": \"depositoCentralId\" }\n" +
 				"]";

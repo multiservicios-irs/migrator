@@ -60,9 +60,22 @@
 						<input type="text" name="dbDestinoPassword" class="mt-2 w-full rounded-lg border px-3 py-2" th:value="${dbDestinoPassword}" />
 					</div>
 
-					<div class="md:col-span-2 rounded-2xl border bg-slate-50 p-4">
-						<h3 class="font-medium">1. SQL (Origen)</h3>
-						<textarea name="sql" class="mt-2 w-full rounded-lg border px-3 py-2 font-mono text-sm" rows="6" th:text="${sql}" placeholder="select id, descripcion as nombre from tabla_origen"></textarea>
+					<div class="md:col-span-2 flex gap-3">
+						<button type="submit" formaction="/universal/test-connection" class="rounded-lg border px-4 py-2 hover:bg-slate-50">Probar conexión</button>
+					</div>
+
+					<div class="md:col-span-2 rounded-2xl shadow border bg-white -mx-4">
+						<div class="p-4 space-y-3">
+							<h2 class="text-lg font-medium">1. Consulta SQL (DB Origen)</h2>
+							<textarea name="sql" class="w-full rounded-lg border px-3 py-2 font-mono text-sm" rows="6" th:text="${sql}" placeholder="select id, descripcion as nombre from tabla_origen"></textarea>
+							<div class="flex flex-wrap gap-3 items-end">
+								<div>
+									<label class="text-sm text-slate-700">Límite preview</label>
+									<input type="number" name="limit" value="20" min="1" max="500" class="mt-2 w-40 rounded-lg border px-3 py-2" />
+								</div>
+								<button type="submit" formaction="/universal/preview" class="rounded-lg border px-4 py-2 hover:bg-slate-50">Probar SQL</button>
+							</div>
+						</div>
 					</div>
 
 					<div class="md:col-span-2 rounded-2xl border bg-slate-50 p-4 grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
@@ -80,13 +93,35 @@
 						</div>
 					</div>
 
+					<!-- Preview -->
+					<div class="md:col-span-2 rounded-2xl shadow border bg-white -mx-4" th:if="${previewRows}">
+						<div class="p-4 space-y-3">
+							<h2 class="text-lg font-medium">Preview</h2>
+							<div class="overflow-auto">
+								<table class="min-w-full text-sm">
+									<thead class="bg-slate-50">
+										<tr>
+											<th class="text-left px-3 py-2 border-b" th:each="c : ${previewColumns}" th:text="${c}"></th>
+										</tr>
+									</thead>
+									<tbody>
+										<tr class="odd:bg-white even:bg-slate-50" th:each="r : ${previewRows}">
+											<td class="px-3 py-2 border-b" th:each="c : ${previewColumns}" th:text="${r.get(c)}"></td>
+										</tr>
+									</tbody>
+								</table>
+							</div>
+						</div>
+					</div>
+
 					<textarea id="mappingsJson" name="mappings" class="hidden" th:text="${mappings}"></textarea>
 
 					<div class="md:col-span-2 rounded-2xl border bg-white p-4 space-y-3">
 						<div class="flex items-center justify-between">
-							<h3 class="font-medium">2. Mapeo de Campos (Manual)</h3>
+							<h3 class="font-medium">2. Mapeo de Campos</h3>
 							<div class="flex gap-2">
 								<button type="button" class="rounded-lg border px-4 py-2 hover:bg-slate-50" onclick="addMappingRow({})">Agregar fila</button>
+								<button type="button" class="rounded-lg border px-4 py-2 hover:bg-slate-50" onclick="autoMapByName()">Auto-map por nombre</button>
 								<button type="button" class="rounded-lg border px-4 py-2 hover:bg-slate-50" onclick="toggleJson()">Ver JSON</button>
 							</div>
 						</div>
@@ -122,8 +157,14 @@
 					</div>
 
 					<div class="md:col-span-2" th:if="${runLogs}">
-						<h3 class="text-lg font-medium mt-4">Logs</h3>
-						<div class="rounded-xl border bg-white p-3 max-h-96 overflow-auto font-mono text-xs">
+						<div class="flex items-center justify-between gap-3 mt-4">
+							<h3 class="text-lg font-medium">Logs</h3>
+							<div class="flex gap-2">
+								<button type="button" onclick="copyRunLogsUniversal();" class="rounded-lg border px-4 py-2 hover:bg-slate-50">Copiar logs</button>
+								<button type="submit" formaction="/universal/clear-logs" data-skip-mappings="true" class="rounded-lg border px-4 py-2 hover:bg-slate-50">Limpiar logs</button>
+							</div>
+						</div>
+						<div id="runLogsContainer" class="rounded-xl border bg-white p-3 max-h-96 overflow-auto font-mono text-xs">
 							<div th:each="e : ${runLogs}">
 								<span th:text="'[' + ${e.level()} + '] row=' + ${e.rowNumber()} + ' ' + ${e.message()}" />
 							</div>
@@ -133,6 +174,11 @@
 			</div>
 		</div>
 	</div>
+
+	<!-- Columnas detectadas en el preview SQL (origen) -->
+	<datalist id="sourceFieldsDatalist">
+		<option th:each="c : ${previewColumns}" th:value="${c}"></option>
+	</datalist>
 
 	<script>
 		function addMappingRow(row) {
@@ -146,7 +192,7 @@
 
 			tr.innerHTML = `
 				<td class="px-3 py-2">
-					<input class="w-full rounded-lg border px-3 py-2" placeholder="columna_origen" value="${escapeHtmlAttr(source)}" data-field="source" />
+					<input class="w-full rounded-lg border px-3 py-2" list="sourceFieldsDatalist" placeholder="columna_origen" value="${escapeHtmlAttr(source)}" data-field="source" />
 				</td>
 				<td class="px-3 py-2">
 					<input class="w-full rounded-lg border px-3 py-2" list="destColumnsDatalist" placeholder="columna_destino" value="${escapeHtmlAttr(target)}" data-field="target" />
@@ -170,6 +216,57 @@
 			body.appendChild(tr);
 			tr.querySelector('select[data-field="type"]').value = type;
 			onTypeChanged(tr.querySelector('select[data-field="type"]'));
+		}
+
+		function getAvailableSourceColumns() {
+			return Array.from(document.querySelectorAll('#sourceFieldsDatalist option'))
+				.map(o => (o.value || '').trim())
+				.filter(v => v.length > 0);
+		}
+
+		function getAvailableDestColumns() {
+			return Array.from(document.querySelectorAll('#destColumnsDatalist option'))
+				.map(o => (o.value || '').trim())
+				.filter(v => v.length > 0);
+		}
+
+		function findCaseInsensitive(available, candidate) {
+			if (!candidate) return '';
+			const map = new Map((available || []).map(v => [v.toLowerCase(), v]));
+			return map.get(candidate.toLowerCase()) || '';
+		}
+
+		function autoMapByName() {
+			const sources = getAvailableSourceColumns();
+			const dests = getAvailableDestColumns();
+			if (!sources.length) {
+				alert('Primero corré el Preview para detectar columnas del SQL (Probar SQL).');
+				return;
+			}
+			if (!dests.length) {
+				alert('Primero cargá las columnas del destino (Cargar columnas).');
+				return;
+			}
+
+			// Evitar duplicados por target
+			const existingTargets = new Set(
+				Array.from(document.querySelectorAll('#mappingTableBody tr [data-field="target"]'))
+					.map(el => ((el.value || '').trim()).toLowerCase())
+					.filter(v => v.length > 0)
+			);
+
+			let added = 0;
+			for (const d of dests) {
+				if (!d) continue;
+				if (existingTargets.has(d.toLowerCase())) continue;
+				const src = findCaseInsensitive(sources, d);
+				if (!src) continue;
+				addMappingRow({ source: src, target: d, type: 'DIRECTO' });
+				added++;
+			}
+			if (added === 0) {
+				alert('No se encontraron coincidencias por nombre (revisá aliases en el SQL o hacé mapeo manual).');
+			}
 		}
 
 		function onTypeChanged(selectEl) {
@@ -221,6 +318,15 @@
 		}
 
 		function syncMappingsToJson(evt) {
+			// Permitir submits (ej: limpiar logs) sin intentar serializar/validar el mapeo
+			try {
+				const submitter = evt && evt.submitter ? evt.submitter : null;
+				if (submitter && submitter.dataset && submitter.dataset.skipMappings === 'true') {
+					return true;
+				}
+			} catch (e) {
+				// noop
+			}
 			const fromBox = readMappingsFromJsonBoxIfPresent();
 			let json;
 			if (fromBox) {
@@ -252,6 +358,41 @@
 				.replaceAll("'", '&#39;')
 				.replaceAll('<', '&lt;')
 				.replaceAll('>', '&gt;');
+		}
+
+		async function copyTextToClipboard(text) {
+			const v = (text || '').toString();
+			if (!v || v.trim().length === 0) {
+				alert('No hay logs para copiar.');
+				return;
+			}
+			try {
+				if (navigator.clipboard && window.isSecureContext) {
+					await navigator.clipboard.writeText(v);
+					alert('Logs copiados al portapapeles.');
+					return;
+				}
+			} catch (e) {
+				// fallback abajo
+			}
+			const ta = document.createElement('textarea');
+			ta.value = v;
+			ta.style.position = 'fixed';
+			ta.style.left = '-9999px';
+			ta.style.top = '0';
+			document.body.appendChild(ta);
+			ta.focus();
+			ta.select();
+			let ok = false;
+			try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+			document.body.removeChild(ta);
+			alert(ok ? 'Logs copiados al portapapeles.' : 'No se pudo copiar. Probá seleccionar el texto y copiar manualmente.');
+		}
+
+		function copyRunLogsUniversal() {
+			const box = document.getElementById('runLogsContainer');
+			const text = box ? (box.innerText || box.textContent || '') : '';
+			copyTextToClipboard(text);
 		}
 
 		async function refreshTables() {

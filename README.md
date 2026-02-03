@@ -31,3 +31,7 @@ En Linux/macOS:
 
 - Configuración en `src/main/resources/application.properties`.
 - Por defecto, el directorio `target/` está ignorado por Git.
+
+## Documentación
+
+- Auditoría y roadmap del modo Universal: [docs/auditoria-modo-universal.md](docs/auditoria-modo-universal.md)

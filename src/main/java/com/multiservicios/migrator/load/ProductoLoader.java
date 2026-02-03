@@ -5,6 +5,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Savepoint;
 
 import javax.sql.DataSource;
 
@@ -65,7 +66,7 @@ public class ProductoLoader {
 			try {
 				ensureCatalogAndDepositosExist(connection, marcaId, unidadMedidaId, categoriaId, dto);
 
-				long productoId = insertProducto(connection,
+				ProductoUpsertResult productoResult = insertProducto(connection,
 						codigoBarra,
 						nombre,
 						producto.getDescripcion(),
@@ -86,10 +87,11 @@ public class ProductoLoader {
 						createdBy,
 						updatedBy,
 						includeAuditColumns);
+				long productoId = productoResult.id();
 
 				BigDecimal totalStock = null;
 				if (!esPaquete && !esServicio) {
-					var stockOps = upsertStocksAndMovimientos(connection, productoId, dto);
+					var stockOps = upsertStocksAndMovimientos(connection, productoId, dto, productoResult.created());
 					totalStock = stockOps.totalStock();
 					updateProductoStock(connection, productoId, totalStock, includeAuditColumns);
 				} else {
@@ -113,7 +115,7 @@ public class ProductoLoader {
 				} else {
 					stockInfo = "depositoId=" + dto.getDepositoId() + " stock=" + dto.getStock() + " totalStock=" + totalStock;
 				}
-				String msg = "Producto creado en destino: id=" + productoId
+				String msg = (productoResult.created() ? "Producto creado en destino" : "Producto ya existía en destino") + ": id=" + productoId
 						+ " nombre=" + nombre
 						+ " tipo=" + tipo.name()
 						+ " precioMinorista=" + producto.getPrecioMinorista()
@@ -169,6 +171,7 @@ public class ProductoLoader {
 		BigDecimal ivaPercent = defaultZero(producto.getIvaPercent());
 		String createdBy = defaultUser(producto.getCreatedBy());
 		String updatedBy = defaultUser(producto.getUpdatedBy());
+		boolean includeAuditColumns = properties.getProductos().isIncludeAuditColumns();
 
 		if (dryRun) {
 			String msg = "DRY-RUN insert producto+stock: tipo=" + tipo.name() + " nombre=" + nombre;
@@ -176,13 +179,14 @@ public class ProductoLoader {
 		}
 
 		Long productoId;
+		boolean created;
 		try (Connection connection = destino.getConnection()) {
 			boolean oldAutoCommit = connection.getAutoCommit();
 			connection.setAutoCommit(false);
 			try {
 				ensureCatalogAndDepositosExist(connection, marcaId, unidadMedidaId, categoriaId, dto);
 
-				productoId = insertProducto(connection,
+				ProductoUpsertResult productoResult = insertProducto(connection,
 						codigoBarra,
 						nombre,
 						producto.getDescripcion(),
@@ -201,7 +205,10 @@ public class ProductoLoader {
 						producto.getImagenUrl(),
 						activo,
 						createdBy,
-						updatedBy);
+						updatedBy,
+						includeAuditColumns);
+				productoId = productoResult.id();
+				created = productoResult.created();
 				connection.commit();
 			} catch (Exception ex) {
 				try {
@@ -225,8 +232,8 @@ public class ProductoLoader {
 				boolean oldAutoCommit = connection.getAutoCommit();
 				connection.setAutoCommit(false);
 				try {
-					var stockOps = upsertStocksAndMovimientos(connection, productoId, dto);
-					updateProductoStock(connection, productoId, stockOps.totalStock());
+					var stockOps = upsertStocksAndMovimientos(connection, productoId, dto, created);
+					updateProductoStock(connection, productoId, stockOps.totalStock(), includeAuditColumns);
 					connection.commit();
 				} catch (Exception ex) {
 					try {
@@ -254,13 +261,16 @@ public class ProductoLoader {
 			}
 		}
 
-		return LoadResult.ok("Producto creado en destino: id=" + productoId + " nombre=" + nombre, productoId);
+		return LoadResult.ok((created ? "Producto creado en destino" : "Producto ya existía en destino") + ": id=" + productoId + " nombre=" + nombre, productoId);
 	}
 
 	private record StockOps(BigDecimal totalStock) {
 	}
 
-	private long insertProducto(
+	private record ProductoUpsertResult(long id, boolean created) {
+	}
+
+	private ProductoUpsertResult insertProducto(
 			Connection connection,
 			String codigoBarra,
 			String nombre,
@@ -326,16 +336,172 @@ public class ProductoLoader {
 				setStringOrNull(ps, i++, updatedBy);
 			}
 
+			// En PostgreSQL, si un statement falla dentro de una transacción (autoCommit=false),
+			// la transacción queda "abortada" hasta ejecutar rollback. Usamos SAVEPOINT para
+			// poder recuperarnos de errores esperados (ej. unique violation) sin tumbar el resto.
+			Savepoint insertSp = null;
+			try {
+				if (connection != null && !connection.getAutoCommit()) {
+					insertSp = connection.setSavepoint();
+				}
+			} catch (SQLException ignored) {
+				insertSp = null;
+			}
+
 			try (ResultSet rs = ps.executeQuery()) {
 				if (rs.next()) {
-					return rs.getLong(1);
+					return new ProductoUpsertResult(rs.getLong(1), true);
 				}
 				throw new IllegalStateException("No se pudo obtener id del producto insertado");
+			} catch (SQLException ex) {
+				// PostgreSQL: 23505 = unique_violation
+				if (isUniqueViolation(ex)) {
+					if (insertSp != null) {
+						try {
+							connection.rollback(insertSp);
+						} catch (SQLException ignored) {
+							// Si falla, el rollback de la transacción completa lo hará el caller.
+						}
+					}
+					Long existingId = findExistingProductoId(connection, codigoBarra, nombre);
+					if (existingId != null) {
+						log.warn("Producto duplicado (nombre/codigo_barra). Se reutiliza id={} nombre={}", existingId, nombre);
+						// Best-effort: completar campos faltantes (NULL) en destino.
+						try {
+							patchProductoIfMissing(connection,
+								existingId,
+								codigoBarra,
+								nombre,
+								descripcion,
+								marcaId,
+								unidadMedidaId,
+								categoriaId,
+								precioDeCompra,
+								precioMinorista,
+								precioMayorista,
+								precioCredito,
+								ivaPercent,
+								stockMin,
+								serializable,
+								tipo,
+								imagenUrl,
+								includeAuditColumns ? activo : null,
+								includeAuditColumns ? createdBy : null,
+								includeAuditColumns ? updatedBy : null,
+								includeAuditColumns);
+						} catch (SQLException patchEx) {
+							log.warn("No se pudo completar campos faltantes del producto id={}: {}", existingId, patchEx.getMessage());
+						}
+						return new ProductoUpsertResult(existingId, false);
+					}
+				}
+				throw ex;
 			}
 		}
 	}
 
-	private StockOps upsertStocksAndMovimientos(Connection connection, long productoId, ProductoMigrationDto dto) throws SQLException {
+	private void patchProductoIfMissing(
+			Connection connection,
+			long id,
+			String codigoBarra,
+			String nombre,
+			String descripcion,
+			Long marcaId,
+			Long unidadMedidaId,
+			Long categoriaId,
+			BigDecimal precioDeCompra,
+			BigDecimal precioMinorista,
+			BigDecimal precioMayorista,
+			BigDecimal precioCredito,
+			BigDecimal ivaPercent,
+			BigDecimal stockMin,
+			Boolean serializable,
+			String tipo,
+			String imagenUrl,
+			Boolean activo,
+			String createdBy,
+			String updatedBy,
+			boolean includeAuditColumns) throws SQLException {
+		final String sql;
+		if (includeAuditColumns) {
+			sql = "update productos set " +
+					"codigo_barra = coalesce(codigo_barra, ?), " +
+					"nombre = coalesce(nombre, ?), " +
+					"descripcion = coalesce(descripcion, ?), " +
+					"marca_id = coalesce(marca_id, ?), " +
+					"unidad_medida_id = coalesce(unidad_medida_id, ?), " +
+					"categoria_id = coalesce(categoria_id, ?), " +
+					"precio_de_compra = coalesce(precio_de_compra, ?), " +
+					"precio_minorista = coalesce(precio_minorista, ?), " +
+					"precio_mayorista = coalesce(precio_mayorista, ?), " +
+					"precio_credito = coalesce(precio_credito, ?), " +
+					"iva_percent = coalesce(iva_percent, ?), " +
+					"stock_min = coalesce(stock_min, ?), " +
+					"serializable = coalesce(serializable, ?), " +
+					"tipo = coalesce(tipo, ?), " +
+					"imagen_url = coalesce(imagen_url, ?), " +
+					"activo = coalesce(activo, ?), " +
+					"created_by = coalesce(created_by, ?), " +
+					"updated_by = coalesce(updated_by, ?), " +
+					"updated_at = current_timestamp " +
+					"where id = ?";
+		} else {
+			sql = "update productos set " +
+					"codigo_barra = coalesce(codigo_barra, ?), " +
+					"nombre = coalesce(nombre, ?), " +
+					"descripcion = coalesce(descripcion, ?), " +
+					"marca_id = coalesce(marca_id, ?), " +
+					"unidad_medida_id = coalesce(unidad_medida_id, ?), " +
+					"categoria_id = coalesce(categoria_id, ?), " +
+					"precio_de_compra = coalesce(precio_de_compra, ?), " +
+					"precio_minorista = coalesce(precio_minorista, ?), " +
+					"precio_mayorista = coalesce(precio_mayorista, ?), " +
+					"precio_credito = coalesce(precio_credito, ?), " +
+					"iva_percent = coalesce(iva_percent, ?), " +
+					"stock_min = coalesce(stock_min, ?), " +
+					"serializable = coalesce(serializable, ?), " +
+					"tipo = coalesce(tipo, ?), " +
+					"imagen_url = coalesce(imagen_url, ?), " +
+					"updated_at = current_timestamp " +
+					"where id = ?";
+		}
+
+		try (PreparedStatement ps = connection.prepareStatement(sql)) {
+			int i = 1;
+			setStringOrNull(ps, i++, codigoBarra);
+			setStringOrNull(ps, i++, nombre);
+			setStringOrNull(ps, i++, descripcion);
+			setLongOrNull(ps, i++, marcaId);
+			setLongOrNull(ps, i++, unidadMedidaId);
+			setLongOrNull(ps, i++, categoriaId);
+			setBigDecimalOrNull(ps, i++, precioDeCompra);
+			setBigDecimalOrNull(ps, i++, precioMinorista);
+			setBigDecimalOrNull(ps, i++, precioMayorista);
+			setBigDecimalOrNull(ps, i++, precioCredito);
+			setBigDecimalOrNull(ps, i++, ivaPercent);
+			setBigDecimalOrNull(ps, i++, stockMin);
+			setBooleanOrNull(ps, i++, serializable);
+			setStringOrNull(ps, i++, tipo);
+			setStringOrNull(ps, i++, imagenUrl);
+			if (includeAuditColumns) {
+				setBooleanOrNull(ps, i++, activo);
+				setStringOrNull(ps, i++, createdBy);
+				setStringOrNull(ps, i++, updatedBy);
+			}
+			ps.setLong(i++, id);
+			ps.executeUpdate();
+		}
+	}
+
+	private static void setBooleanOrNull(PreparedStatement ps, int idx, Boolean value) throws SQLException {
+		if (value == null) {
+			ps.setNull(idx, java.sql.Types.BOOLEAN);
+		} else {
+			ps.setBoolean(idx, value);
+		}
+	}
+
+	private StockOps upsertStocksAndMovimientos(Connection connection, long productoId, ProductoMigrationDto dto, boolean insertMovimientos) throws SQLException {
 		BigDecimal total = BigDecimal.ZERO;
 		if (dto.getStockPorDeposito() != null && !dto.getStockPorDeposito().isEmpty()) {
 			for (ProductoMigrationDto.StockPorDepositoDto s : dto.getStockPorDeposito()) {
@@ -349,7 +515,9 @@ public class ProductoLoader {
 				BigDecimal cantidad = defaultZero(s.getCantidad());
 				BigDecimal reservado = defaultZero(s.getReservado());
 				upsertStockRow(connection, productoId, depositoId, cantidad, reservado);
-				insertStockMovimiento(connection, productoId, depositoId, cantidad);
+				if (insertMovimientos) {
+					insertStockMovimiento(connection, productoId, depositoId, cantidad);
+				}
 				total = total.add(cantidad);
 			}
 			return new StockOps(total);
@@ -359,11 +527,48 @@ public class ProductoLoader {
 			if (depositoId != null) {
 				BigDecimal cantidad = defaultZero(dto.getStock());
 				upsertStockRow(connection, productoId, depositoId, cantidad, BigDecimal.ZERO);
-				insertStockMovimiento(connection, productoId, depositoId, cantidad);
+				if (insertMovimientos) {
+					insertStockMovimiento(connection, productoId, depositoId, cantidad);
+				}
 				total = total.add(cantidad);
 			}
 		}
 		return new StockOps(total);
+	}
+
+	private static boolean isUniqueViolation(SQLException ex) {
+		return ex != null && "23505".equals(ex.getSQLState());
+	}
+
+	private static Long findExistingProductoId(Connection connection, String codigoBarra, String nombre) throws SQLException {
+		if (connection == null) {
+			return null;
+		}
+
+		String cb = codigoBarra != null ? codigoBarra.trim() : null;
+		if (cb != null && !cb.isBlank()) {
+			try (PreparedStatement ps = connection.prepareStatement("select id from productos where codigo_barra = ? limit 1")) {
+				ps.setString(1, cb);
+				try (ResultSet rs = ps.executeQuery()) {
+					if (rs.next()) {
+						return rs.getLong(1);
+					}
+				}
+			}
+		}
+
+		String n = nombre != null ? nombre.trim() : null;
+		if (n != null && !n.isBlank()) {
+			try (PreparedStatement ps = connection.prepareStatement("select id from productos where nombre = ? limit 1")) {
+				ps.setString(1, n);
+				try (ResultSet rs = ps.executeQuery()) {
+					if (rs.next()) {
+						return rs.getLong(1);
+					}
+				}
+			}
+		}
+		return null;
 	}
 
 	private void updateProductoStock(Connection connection, long productoId, BigDecimal totalStock, boolean includeAuditColumns) throws SQLException {

@@ -151,8 +151,14 @@
 		<!-- Logs -->
 		<div class="rounded-2xl shadow border bg-white">
 			<div class="p-4 space-y-3">
-				<h2 class="text-lg font-medium">4. Logs</h2>
-				<textarea class="w-full rounded-lg border px-3 py-2 font-mono text-sm" rows="6" placeholder="[INFO] Migrando producto ID 25..." readonly
+				<div class="flex items-center justify-between gap-3">
+					<h2 class="text-lg font-medium">4. Logs</h2>
+					<div class="flex gap-2">
+						<button type="button" onclick="copyRunLogs();" class="rounded-lg border px-4 py-2 hover:bg-slate-50">Copiar logs</button>
+						<button type="submit" form="mainForm" formaction="/clear-logs" data-skip-mappings="true" class="rounded-lg border px-4 py-2 hover:bg-slate-50">Limpiar logs</button>
+					</div>
+				</div>
+				<textarea id="runLogsTextArea" class="w-full rounded-lg border px-3 py-2 font-mono text-sm" rows="6" placeholder="[INFO] Migrando producto ID 25..." readonly
 						th:text="${runLogs != null} ? ${#strings.listJoin(runLogs.![ '[' + level + '] row=' + rowNumber + ' ' + message ], '\n')} : ''"></textarea>
 			</div>
 		</div>
@@ -335,8 +341,22 @@
 		function loadDefaultMappingsTemplate() {
 			clearMappingsTable();
 
-			// Base mínima (no inventar columnas; usar preview si existe)
+			// Template base recomendado: incluye precios para evitar migraciones sin precios.
+			addMappingRow({ source: bestSourceForTarget('producto.codigoBarra'), target: 'producto.codigoBarra', type: 'DIRECTO' });
 			addMappingRow({ source: bestSourceForTarget('producto.nombre'), target: 'producto.nombre', type: 'DIRECTO' });
+			addMappingRow({ source: bestSourceForTarget('producto.descripcion'), target: 'producto.descripcion', type: 'DIRECTO' });
+
+			addMappingRow({ target: 'producto.marcaId', type: 'DEFAULT', value: 'marcaGenericaId' });
+			addMappingRow({ target: 'producto.categoriaId', type: 'DEFAULT', value: 'categoriaGenericaId' });
+			addMappingRow({ target: 'producto.unidadMedidaId', type: 'DEFAULT', value: 'unidadMedidaGenericaId' });
+
+			addMappingRow({ source: bestSourceForTarget('producto.precioDeCompra'), target: 'producto.precioDeCompra', type: 'DIRECTO' });
+			addMappingRow({ source: bestSourceForTarget('producto.precioMinorista'), target: 'producto.precioMinorista', type: 'DIRECTO' });
+			addMappingRow({ source: bestSourceForTarget('producto.precioMayorista'), target: 'producto.precioMayorista', type: 'DIRECTO' });
+			addMappingRow({ source: bestSourceForTarget('producto.precioCredito'), target: 'producto.precioCredito', type: 'DIRECTO' });
+			addMappingRow({ source: bestSourceForTarget('producto.ivaPercent'), target: 'producto.ivaPercent', type: 'DIRECTO' });
+			addMappingRow({ source: bestSourceForTarget('producto.stockMin'), target: 'producto.stockMin', type: 'DIRECTO' });
+
 			addSeparatorRow('STOCK');
 			addMappingRow({ source: bestSourceForTarget('stockPorDeposito[0].cantidad'), target: 'stockPorDeposito[0].cantidad', type: 'DIRECTO' });
 			addMappingRow({ target: 'stockPorDeposito[0].depositoId', type: 'DEFAULT', value: 'depositoCentralId' });
@@ -470,6 +490,15 @@
 		}
 
 		function syncMappingsToJson(evt) {
+			// Permitir submits (ej: limpiar logs) sin intentar serializar/validar el mapeo
+			try {
+				const submitter = evt && evt.submitter ? evt.submitter : null;
+				if (submitter && submitter.dataset && submitter.dataset.skipMappings === 'true') {
+					return true;
+				}
+			} catch (e) {
+				// noop
+			}
 			// Si el usuario abrió el JSON box y editó el JSON, intentamos usar ese.
 			const fromBox = readMappingsFromJsonBoxIfPresent();
 			let json;
@@ -533,6 +562,41 @@
 			return true;
 		}
 
+		async function copyTextToClipboard(text) {
+			const v = (text || '').toString();
+			if (!v || v.trim().length === 0) {
+				alert('No hay logs para copiar.');
+				return;
+			}
+			try {
+				if (navigator.clipboard && window.isSecureContext) {
+					await navigator.clipboard.writeText(v);
+					alert('Logs copiados al portapapeles.');
+					return;
+				}
+			} catch (e) {
+				// fallback abajo
+			}
+			// Fallback: textarea temporal + execCommand
+			const ta = document.createElement('textarea');
+			ta.value = v;
+			ta.style.position = 'fixed';
+			ta.style.left = '-9999px';
+			ta.style.top = '0';
+			document.body.appendChild(ta);
+			ta.focus();
+			ta.select();
+			let ok = false;
+			try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+			document.body.removeChild(ta);
+			alert(ok ? 'Logs copiados al portapapeles.' : 'No se pudo copiar. Probá seleccionar el texto y copiar manualmente.');
+		}
+
+		function copyRunLogs() {
+			const ta = document.getElementById('runLogsTextArea');
+			copyTextToClipboard(ta ? ta.value : '');
+		}
+
 		function escapeHtmlAttr(s) {
 			return (s || '')
 				.replaceAll('&', '&amp;')
@@ -557,6 +621,14 @@
 
 			function autoFixKeyMappingsFromPreview() {
 				// Solo corregimos targets críticos para evitar errores masivos.
+				const criticalTargets = [
+					'producto.nombre',
+					'stockPorDeposito[0].cantidad',
+					'producto.precioDeCompra',
+					'producto.precioMinorista',
+					'producto.precioMayorista',
+					'producto.precioCredito'
+				];
 				const rows = Array.from(document.querySelectorAll('#mappingTableBody tr'));
 				for (const tr of rows) {
 					const sourceEl = tr.querySelector('[data-field="source"]');
@@ -567,7 +639,7 @@
 					const type = (typeEl.value || '').trim();
 					if (type !== 'DIRECTO') continue;
 
-					if (target === 'producto.nombre' || target === 'stockPorDeposito[0].cantidad') {
+					if (criticalTargets.includes(target)) {
 						const current = (sourceEl.value || '').trim();
 						if (!current || !sourceExistsInPreview(current)) {
 							const best = bestSourceForTarget(target);
