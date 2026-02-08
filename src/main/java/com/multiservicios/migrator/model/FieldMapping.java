@@ -12,6 +12,11 @@ public class FieldMapping {
 
 	private String value;
 
+	/**
+	 * Regla opcional de transformación (ej: trim, upper, toDecimal, toDate(yyyy-MM-dd), coalesce(0)).
+	 */
+	private String rule;
+
 	public String getSource() {
 		return source;
 	}
@@ -42,5 +47,13 @@ public class FieldMapping {
 
 	public void setValue(String value) {
 		this.value = value;
+	}
+
+	public String getRule() {
+		return rule;
+	}
+
+	public void setRule(String rule) {
+		this.rule = rule;
 	}
 }

@@ -17,7 +17,7 @@ public class MigrationJob {
 	private List<FieldMapping> mappings = new ArrayList<>();
 
 	private boolean dryRun = true;
-	private int previewLimit = 50;
+	private int previewLimit = 5;
 
 	public String getProfileName() {
 		return profileName;

@@ -13,12 +13,14 @@
 			<a href="/" class="rounded-lg border px-4 py-2 hover:bg-slate-50">Volver a Productos</a>
 		</div>
 
-		<div th:if="${flash}" class="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900" th:text="${flash}"></div>
+		<div id="flashContainer">
+			<div th:if="${flash}" class="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900" th:text="${flash}"></div>
+		</div>
 
 		<div class="rounded-2xl shadow border bg-white">
 			<div class="p-4 space-y-3">
 				<h2 class="text-lg font-medium">0. Bases (Origen y Destino)</h2>
-				<form id="universalForm" method="post" action="/universal/run" class="grid grid-cols-1 md:grid-cols-2 gap-4 items-end" onsubmit="return syncMappingsToJson(event);">
+				<form id="universalForm" method="post" action="/universal/run" class="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
 					<div>
 						<label class="text-sm text-slate-700">DB Origen (Nombre)</label>
 						<input type="text" name="dbOrigenName" class="mt-2 w-full rounded-lg border px-3 py-2 font-semibold" th:value="${dbOrigenName}" />
@@ -66,36 +68,30 @@
 
 					<div class="md:col-span-2 rounded-2xl shadow border bg-white -mx-4">
 						<div class="p-4 space-y-3">
-							<h2 class="text-lg font-medium">1. Consulta SQL (DB Origen)</h2>
+							<div class="flex items-center justify-between gap-3">
+								<h2 class="text-lg font-medium">1. Consulta SQL (DB Origen)</h2>
+								<button type="button" id="sqlHistoryClearBtn" class="rounded-lg border px-3 py-2 hover:bg-slate-50" title="Limpiar historial" aria-label="Limpiar historial">×</button>
+							</div>
 							<textarea name="sql" class="w-full rounded-lg border px-3 py-2 font-mono text-sm" rows="6" th:text="${sql}" placeholder="select id, descripcion as nombre from tabla_origen"></textarea>
+							<div class="flex flex-wrap gap-3 items-end">
+								<div class="w-full md:w-96">
+									<label class="text-sm text-slate-700">Historial (últimas 10)</label>
+									<select id="sqlHistorySelect" class="mt-2 w-full rounded-lg border px-3 py-2 text-sm"></select>
+								</div>
+							</div>
 							<div class="flex flex-wrap gap-3 items-end">
 								<div>
 									<label class="text-sm text-slate-700">Límite preview</label>
-									<input type="number" name="limit" value="20" min="1" max="500" class="mt-2 w-40 rounded-lg border px-3 py-2" />
+									<input type="number" name="limit" value="5" min="1" max="500" class="mt-2 w-40 rounded-lg border px-3 py-2" />
 								</div>
 								<button type="submit" formaction="/universal/preview" class="rounded-lg border px-4 py-2 hover:bg-slate-50">Probar SQL</button>
 							</div>
 						</div>
 					</div>
 
-					<div class="md:col-span-2 rounded-2xl border bg-slate-50 p-4 grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-						<div>
-							<label class="text-sm text-slate-700">Schema destino</label>
-							<input id="destSchema" type="text" name="destSchema" class="mt-2 w-full rounded-lg border px-3 py-2" th:value="${destSchema}" />
-						</div>
-						<div>
-							<label class="text-sm text-slate-700">Tabla destino</label>
-							<select id="destTable" name="destTable" class="mt-2 w-full rounded-lg border px-3 py-2"></select>
-						</div>
-						<div class="flex gap-2">
-							<button type="button" class="mt-6 rounded-lg border px-4 py-2 hover:bg-white" onclick="refreshTables()">Cargar tablas</button>
-							<button type="button" class="mt-6 rounded-lg border px-4 py-2 hover:bg-white" onclick="loadDestColumns()">Cargar columnas</button>
-						</div>
-					</div>
-
 					<!-- Preview -->
-					<div class="md:col-span-2 rounded-2xl shadow border bg-white -mx-4" th:if="${previewRows}">
-						<div class="p-4 space-y-3">
+					<div id="previewContainer" class="md:col-span-2 rounded-2xl shadow border bg-white -mx-4" th:style="${previewRows} ? '' : 'display:none;'">
+						<div class="p-4 space-y-3" th:if="${previewRows}">
 							<h2 class="text-lg font-medium">Preview</h2>
 							<div class="overflow-auto">
 								<table class="min-w-full text-sm">
@@ -116,6 +112,26 @@
 
 					<textarea id="mappingsJson" name="mappings" class="hidden" th:text="${mappings}"></textarea>
 
+					<div class="md:col-span-2 rounded-2xl border bg-slate-50 p-4">
+						<div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+							<div>
+								<label class="text-sm text-slate-700">Schema destino</label>
+								<input id="destSchema" type="text" name="destSchema" class="mt-2 w-full rounded-lg border px-3 py-2" th:value="${(destSchema != null and !#strings.isEmpty(destSchema)) ? destSchema : 'public'}" />
+							</div>
+							<div class="md:col-span-2">
+								<label class="text-sm text-slate-700">Tabla destino</label>
+								<select id="destTable" name="destTable" class="mt-2 w-full rounded-lg border px-3 py-2"></select>
+							</div>
+							<div class="flex gap-2">
+								<button type="button" class="mt-6 rounded-lg border px-4 py-2 hover:bg-white" onclick="refreshTables()">Cargar tablas</button>
+								<button type="button" class="mt-6 rounded-lg border px-4 py-2 hover:bg-white" onclick="loadDestColumns()">Cargar columnas</button>
+							</div>
+						</div>
+						<div class="text-xs text-slate-600 mt-2">
+							Default: schema <span class="font-mono">public</span>, tabla <span class="font-mono">personas</span>
+						</div>
+					</div>
+
 					<div class="md:col-span-2 rounded-2xl border bg-white p-4 space-y-3">
 						<div class="flex items-center justify-between">
 							<h3 class="font-medium">2. Mapeo de Campos</h3>
@@ -132,7 +148,8 @@
 									<tr>
 										<th class="text-left px-3 py-2 border-b">Campo Origen (columna SQL)</th>
 										<th class="text-left px-3 py-2 border-b">Campo Destino (columna tabla)</th>
-										<th class="text-left px-3 py-2 border-b">Regla</th>
+										<th class="text-left px-3 py-2 border-b">Tipo / Valor</th>
+										<th class="text-left px-3 py-2 border-b">Transformación</th>
 										<th class="text-left px-3 py-2 border-b"></th>
 									</tr>
 								</thead>
@@ -145,18 +162,27 @@
 						</div>
 					</div>
 
-					<div class="md:col-span-2 flex items-center gap-4">
+					<div class="md:col-span-2 flex flex-wrap items-center gap-4">
+						<button type="button" onclick="validateMappings();" class="rounded-lg border px-4 py-2 hover:bg-slate-50">Validar (pre-run)</button>
 						<button type="submit" formaction="/universal/run" class="rounded-lg bg-slate-900 text-white px-4 py-2 hover:bg-slate-800">Ejecutar Migración</button>
 						<label class="flex items-center gap-2 text-sm">
-							<input type="checkbox" name="dryRun" value="true" checked /> Dry Run
+							<input type="checkbox" name="dryRun" value="true" /> Dry Run <span class="text-slate-600">(solo simula, NO inserta)</span>
 						</label>
 					</div>
 
-					<div class="md:col-span-2" th:if="${runResult}">
-						<div class="rounded-xl border bg-emerald-50 border-emerald-200 px-4 py-3 text-emerald-900" th:text="'Resultado: total=' + ${runResult.total()} + ', ok=' + ${runResult.ok()} + ', fail=' + ${runResult.fail()} + ', dryRun=' + ${runResult.dryRun()}" />
+					<div class="md:col-span-2" id="validationBox" style="display:none;">
+						<div class="rounded-xl border bg-slate-50 px-4 py-3">
+							<div class="font-medium" id="validationTitle"></div>
+							<ul class="mt-2 list-disc pl-6 text-sm" id="validationList"></ul>
+						</div>
 					</div>
 
-					<div class="md:col-span-2" th:if="${runLogs}">
+					<div id="runResultContainer" class="md:col-span-2" th:style="${runResult} ? '' : 'display:none;'">
+						<div th:if="${runResult}" class="rounded-xl border bg-emerald-50 border-emerald-200 px-4 py-3 text-emerald-900" th:text="'Resultado: total=' + ${runResult.total()} + ', ok=' + ${runResult.ok()} + ', fail=' + ${runResult.fail()} + ', dryRun=' + ${runResult.dryRun()}" />
+					</div>
+
+					<div id="logsContainer" class="md:col-span-2" th:style="${runLogs} ? '' : 'display:none;'">
+						<div th:if="${runLogs}">
 						<div class="flex items-center justify-between gap-3 mt-4">
 							<h3 class="text-lg font-medium">Logs</h3>
 							<div class="flex gap-2">
@@ -169,6 +195,7 @@
 								<span th:text="'[' + ${e.level()} + '] row=' + ${e.rowNumber()} + ' ' + ${e.message()}" />
 							</div>
 						</div>
+						</div>
 					</div>
 				</form>
 			</div>
@@ -180,7 +207,251 @@
 		<option th:each="c : ${previewColumns}" th:value="${c}"></option>
 	</datalist>
 
+	<datalist id="transformRulesDatalist">
+		<option value="now"></option>
+		<option value="currentTimestamp"></option>
+		<option value="today"></option>
+		<option value="currentDate"></option>
+		<option value="trim"></option>
+		<option value="upper"></option>
+		<option value="lower"></option>
+		<option value="emptyToNull"></option>
+		<option value="coalesce(0)"></option>
+		<option value="coalesce('')"></option>
+		<option value="toInt"></option>
+		<option value="toLong"></option>
+		<option value="toDecimal"></option>
+		<option value="toBool"></option>
+		<option value="toDate(yyyy-MM-dd)"></option>
+		<option value="toTimestamp(yyyy-MM-dd HH:mm:ss)"></option>
+	</datalist>
+
 	<script>
+		// ============ SUBMIT SIN RECARGAR (AJAX HTML swap) ============
+		function replaceOrRemoveById(id, nextDoc) {
+			const nextEl = nextDoc.getElementById(id);
+			const curEl = document.getElementById(id);
+			if (nextEl && curEl) {
+				curEl.replaceWith(nextEl);
+				return;
+			}
+			if (!nextEl && curEl) {
+				curEl.remove();
+			}
+		}
+
+		// ============ HISTORIAL SQL (localStorage) ============
+		const SQL_HISTORY_KEY = 'migrator.sqlHistory.v1';
+		const SQL_HISTORY_MAX = 10;
+
+		function getSqlTextarea(form) {
+			if (form && typeof form.querySelector === 'function') {
+				const el = form.querySelector('textarea[name="sql"]');
+				if (el) return el;
+			}
+			return document.querySelector('textarea[name="sql"]');
+		}
+
+		function readSqlHistory() {
+			try {
+				const raw = window.localStorage ? localStorage.getItem(SQL_HISTORY_KEY) : null;
+				if (!raw) return [];
+				const parsed = JSON.parse(raw);
+				return Array.isArray(parsed) ? parsed.filter(v => typeof v === 'string') : [];
+			} catch (e) {
+				return [];
+			}
+		}
+
+		function writeSqlHistory(list) {
+			try {
+				if (!window.localStorage) return;
+				localStorage.setItem(SQL_HISTORY_KEY, JSON.stringify(list || []));
+			} catch (e) {
+			}
+		}
+
+		function addToSqlHistory(sql) {
+			const value = (sql || '').trim();
+			if (!value) return;
+			const list = readSqlHistory();
+			const normalized = value.replace(/\s+/g, ' ').trim().toLowerCase();
+			const next = [value];
+			for (const item of list) {
+				if ((item || '').replace(/\s+/g, ' ').trim().toLowerCase() === normalized) continue;
+				next.push(item);
+				if (next.length >= SQL_HISTORY_MAX) break;
+			}
+			writeSqlHistory(next);
+		}
+
+		function labelForSql(sql) {
+			const oneLine = (sql || '').replace(/\s+/g, ' ').trim();
+			if (!oneLine) return '(vacío)';
+			return oneLine.length > 120 ? (oneLine.substring(0, 117) + '...') : oneLine;
+		}
+
+		function renderSqlHistorySelect() {
+			const select = document.getElementById('sqlHistorySelect');
+			if (!select) return;
+			const list = readSqlHistory();
+			select.innerHTML = '';
+			if (!list.length) {
+				const opt = document.createElement('option');
+				opt.value = '';
+				opt.textContent = 'Sin historial';
+				select.appendChild(opt);
+				select.disabled = true;
+				return;
+			}
+			select.disabled = false;
+			list.forEach((sql, idx) => {
+				const opt = document.createElement('option');
+				opt.value = String(idx);
+				opt.textContent = labelForSql(sql);
+				select.appendChild(opt);
+			});
+		}
+
+		function loadSelectedSqlFromHistory() {
+			const select = document.getElementById('sqlHistorySelect');
+			if (!select || select.disabled) return;
+			const idx = parseInt(select.value, 10);
+			if (Number.isNaN(idx)) return;
+			const list = readSqlHistory();
+			const sql = list[idx];
+			if (!sql) return;
+			const textarea = getSqlTextarea(null);
+			if (!textarea) return;
+			textarea.value = sql;
+			textarea.textContent = sql;
+			textarea.focus();
+		}
+
+		function requestSqlPreview() {
+			const form = document.getElementById('universalForm');
+			if (!form) return;
+			const previewBtn = form.querySelector('button[type="submit"][formaction="/universal/preview"]');
+			if (!previewBtn) return;
+			previewBtn.click();
+		}
+
+		function clearSqlHistory() {
+			try {
+				if (!window.localStorage) return;
+				localStorage.removeItem(SQL_HISTORY_KEY);
+			} catch (e) {
+			}
+			renderSqlHistorySelect();
+		}
+
+		function initSqlHistoryUi() {
+			renderSqlHistorySelect();
+			const clearBtn = document.getElementById('sqlHistoryClearBtn');
+			if (clearBtn) clearBtn.addEventListener('click', clearSqlHistory);
+			const select = document.getElementById('sqlHistorySelect');
+			if (select) select.addEventListener('change', function () {
+				loadSelectedSqlFromHistory();
+				requestSqlPreview();
+			});
+		}
+
+		document.addEventListener('DOMContentLoaded', initSqlHistoryUi);
+
+		function maybeStoreSqlHistory(actionUrl, form) {
+			try {
+				if (!actionUrl || !/\/preview$/.test(actionUrl)) return;
+				const textarea = getSqlTextarea(form);
+				if (!textarea) return;
+				addToSqlHistory(textarea.value);
+				renderSqlHistorySelect();
+			} catch (e) {
+			}
+		}
+		// ============ FIN HISTORIAL SQL ============
+
+		async function ajaxSubmitForm(evt) {
+			const form = evt.target;
+			if (!form || !(form instanceof HTMLFormElement)) return;
+			evt.preventDefault();
+
+			try {
+				const ok = syncMappingsToJson(evt);
+				if (!ok) return;
+			} catch (e) {
+			}
+
+			const submitter = evt.submitter ? evt.submitter : null;
+			const actionUrl = (submitter && submitter.getAttribute('formaction')) ? submitter.getAttribute('formaction') : (form.getAttribute('action') || window.location.pathname);
+
+			// Guardar SQL en historial SOLO cuando se hace Preview ("Probar SQL")
+			maybeStoreSqlHistory(actionUrl, form);
+
+			const params = new URLSearchParams();
+			const fd = new FormData(form);
+			for (const [k, v] of fd.entries()) {
+				if (k == null) continue;
+				params.append(k, v == null ? '' : String(v));
+			}
+			if (submitter && submitter.name) {
+				params.set(submitter.name, submitter.value == null ? '' : String(submitter.value));
+			}
+
+			if (submitter) submitter.disabled = true;
+			try {
+				const resp = await fetch(actionUrl, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+					body: params.toString()
+				});
+				const html = await resp.text();
+				const nextDoc = new DOMParser().parseFromString(html, 'text/html');
+
+				replaceOrRemoveById('flashContainer', nextDoc);
+				replaceOrRemoveById('previewContainer', nextDoc);
+				replaceOrRemoveById('runResultContainer', nextDoc);
+				replaceOrRemoveById('logsContainer', nextDoc);
+				replaceOrRemoveById('sourceFieldsDatalist', nextDoc);
+
+				try { syncMappingsToJson({ submitter: submitter }); } catch (e) {}
+			} catch (e) {
+				alert('No se pudo enviar sin recargar. Error: ' + (e && e.message ? e.message : e));
+			} finally {
+				if (submitter) submitter.disabled = false;
+			}
+		}
+
+		document.addEventListener('DOMContentLoaded', function () {
+			const f = document.getElementById('universalForm');
+			if (f) {
+				f.addEventListener('submit', ajaxSubmitForm);
+			}
+		});
+		// ============ FIN SUBMIT SIN RECARGAR ============
+
+		function formToUrlEncoded(form, extraKvs) {
+			const params = new URLSearchParams();
+			const fd = new FormData(form);
+			for (const [k, v] of fd.entries()) {
+				if (k == null) continue;
+				params.append(k, v == null ? '' : String(v));
+			}
+			if (extraKvs && typeof extraKvs === 'object') {
+				for (const [k, v] of Object.entries(extraKvs)) {
+					params.set(k, v == null ? '' : String(v));
+				}
+			}
+			return params;
+		}
+
+		async function postUrlEncoded(url, params) {
+			return await fetch(url, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+				body: params.toString()
+			});
+		}
+
 		function addMappingRow(row) {
 			const body = document.getElementById('mappingTableBody');
 			const tr = document.createElement('tr');
@@ -189,6 +460,7 @@
 			const target = (row && row.target) ? row.target : '';
 			const type = (row && row.type) ? row.type : 'DIRECTO';
 			const value = (row && row.value) ? row.value : '';
+			const rule = (row && row.rule) ? row.rule : '';
 
 			tr.innerHTML = `
 				<td class="px-3 py-2">
@@ -207,6 +479,9 @@
 						</select>
 						<input class="flex-1 rounded-lg border px-3 py-2" placeholder="valor / key default / spel" value="${escapeHtmlAttr(value)}" data-field="value" />
 					</div>
+				</td>
+				<td class="px-3 py-2">
+					<input class="w-full rounded-lg border px-3 py-2" list="transformRulesDatalist" placeholder="trim | upper | toDecimal | toDate(yyyy-MM-dd) | coalesce(0)" value="${escapeHtmlAttr(rule)}" data-field="rule" />
 				</td>
 				<td class="px-3 py-2 text-right">
 					<button type="button" class="rounded-lg border px-3 py-2 hover:bg-slate-50" onclick="this.closest('tr').remove();">Quitar</button>
@@ -271,19 +546,39 @@
 
 		function onTypeChanged(selectEl) {
 			const tr = selectEl.closest('tr');
+			const sourceInput = tr.querySelector('input[data-field="source"]');
 			const valueInput = tr.querySelector('input[data-field="value"]');
 			const type = selectEl.value;
 			if (type === 'DIRECTO') {
+				if (sourceInput) {
+					sourceInput.disabled = false;
+					sourceInput.placeholder = 'columna_origen';
+				}
 				valueInput.disabled = true;
 				valueInput.value = '';
 				valueInput.placeholder = '';
 			} else if (type === 'DEFAULT') {
+				if (sourceInput) {
+					sourceInput.disabled = true;
+					sourceInput.value = '';
+					sourceInput.placeholder = '(no aplica)';
+				}
 				valueInput.disabled = false;
 				valueInput.placeholder = 'depositoCentralId / ...';
 			} else if (type === 'CONSTANTE') {
+				if (sourceInput) {
+					sourceInput.disabled = true;
+					sourceInput.value = '';
+					sourceInput.placeholder = '(no aplica)';
+				}
 				valueInput.disabled = false;
 				valueInput.placeholder = 'valor fijo';
 			} else {
+				if (sourceInput) {
+					sourceInput.disabled = true;
+					sourceInput.value = '';
+					sourceInput.placeholder = '(no aplica)';
+				}
 				valueInput.disabled = false;
 				valueInput.placeholder = "#row['CAMPO']";
 			}
@@ -296,18 +591,80 @@
 				const targetEl = tr.querySelector('[data-field="target"]');
 				const typeEl = tr.querySelector('[data-field="type"]');
 				const valueEl = tr.querySelector('[data-field="value"]');
+				const ruleEl = tr.querySelector('[data-field="rule"]');
 				if (!sourceEl || !targetEl || !typeEl || !valueEl) return null;
 
 				const source = (sourceEl.value || '').trim();
 				const target = (targetEl.value || '').trim();
 				const type = typeEl.value;
 				const value = valueEl.disabled ? '' : valueEl.value;
+				const rule = ruleEl ? (ruleEl.value || '').trim() : '';
 				const m = { target: target, type: type };
 				if (source) { m.source = source; }
 				if (!valueEl.disabled && value && value.trim().length > 0) { m.value = value; }
+				if (rule && rule.length > 0) { m.rule = rule; }
 				return m;
 			}).filter(m => m && m.target && m.target.length > 0);
+
+			// Validar targets duplicados (si existen, el último pisa al anterior)
+			const counts = new Map();
+			for (const m of mappings) {
+				const key = (m.target || '').trim().toLowerCase();
+				if (!key) continue;
+				counts.set(key, (counts.get(key) || 0) + 1);
+			}
+			const dupes = [];
+			for (const [k, c] of counts.entries()) {
+				if (c > 1) dupes.push(k + ' (' + c + ')');
+			}
+			if (dupes.length > 0) {
+				throw new Error('Hay mapeos duplicados hacia el mismo campo destino: ' + dupes.join(', ') + '.\n\n' +
+					'Un campo destino solo puede venir de UNA fuente. Para CI/RUC -> documento, usá tipo EXPRESION (coalesce).');
+			}
 			return JSON.stringify(mappings, null, 2);
+		}
+
+		async function validateMappings() {
+			const form = document.getElementById('universalForm');
+			const ok = syncMappingsToJson({ submitter: null });
+			if (!ok) return;
+			const box = document.getElementById('validationBox');
+			const title = document.getElementById('validationTitle');
+			const list = document.getElementById('validationList');
+			box.style.display = 'block';
+			title.textContent = 'Validando…';
+			list.innerHTML = '';
+			try {
+				const params = formToUrlEncoded(form, { sample: '30' });
+				const res = await postUrlEncoded('/universal/validate', params);
+				if (!res.ok) {
+					let details = '';
+					try { details = await res.text(); } catch (e) { details = ''; }
+					title.textContent = 'Error al validar (HTTP ' + res.status + ')' + (details ? (': ' + details) : '');
+					return;
+				}
+				const result = await res.json();
+				const errors = (result && Array.isArray(result.errors)) ? result.errors : [];
+				const warnings = (result && Array.isArray(result.warnings)) ? result.warnings : [];
+				const sampled = result && typeof result.sampledRows === 'number' ? result.sampledRows : null;
+				if (errors.length === 0) {
+					title.textContent = '✓ Validación OK' + (sampled != null ? (' (muestra=' + sampled + ')') : '');
+				} else {
+					title.textContent = '✗ Validación con errores' + (sampled != null ? (' (muestra=' + sampled + ')') : '');
+				}
+				for (const w of warnings) {
+					const li = document.createElement('li');
+					li.textContent = '⚠ ' + w;
+					list.appendChild(li);
+				}
+				for (const e of errors) {
+					const li = document.createElement('li');
+					li.textContent = e;
+					list.appendChild(li);
+				}
+			} catch (e) {
+				title.textContent = 'Error al validar: ' + (e && e.message ? e.message : String(e));
+			}
 		}
 
 		function readMappingsFromJsonBoxIfPresent() {
@@ -334,7 +691,7 @@
 			} else {
 				try { json = serializeMappings(); }
 				catch (e) {
-					alert('No se pudo serializar el mapeo.');
+					alert(e && e.message ? e.message : 'No se pudo serializar el mapeo.');
 					return false;
 				}
 			}
@@ -397,11 +754,13 @@
 
 		async function refreshTables() {
 			const form = document.getElementById('universalForm');
-			const data = new FormData(form);
-			data.append('schema', (document.getElementById('destSchema').value || 'public').trim());
-			const res = await fetch('/universal/list-tables', { method: 'POST', body: data });
+			const schema = (document.getElementById('destSchema').value || 'public').trim();
+			const params = formToUrlEncoded(form, { schema });
+			const res = await postUrlEncoded('/universal/list-tables', params);
 			if (!res.ok) {
-				alert('No se pudo listar tablas del destino');
+				let details = '';
+				try { details = await res.text(); } catch (e) { details = ''; }
+				alert('No se pudo listar tablas del destino' + (details ? (': ' + details) : ''));
 				return;
 			}
 			const tables = await res.json();
@@ -417,6 +776,8 @@
 			const initial = "[[${destTable}]]";
 			if (initial && initial.length > 0) {
 				select.value = initial;
+			} else {
+				select.value = 'personas';
 			}
 		}
 
@@ -428,15 +789,29 @@
 				alert('Elegí una tabla destino');
 				return;
 			}
-			const data = new FormData(form);
-			data.append('schema', schema);
-			data.append('table', table);
-			const res = await fetch('/universal/describe-table', { method: 'POST', body: data });
-			if (!res.ok) {
-				alert('No se pudo leer columnas de la tabla');
-				return;
+			const params = formToUrlEncoded(form, { schema, table });
+			let cols = [];
+			let metas = null;
+			try {
+				const resMeta = await postUrlEncoded('/universal/describe-table-meta', params);
+				if (resMeta.ok) {
+					metas = await resMeta.json();
+					cols = Array.isArray(metas) ? metas.map(m => m && m.name).filter(Boolean) : [];
+				}
+			} catch (e) {
+				metas = null;
+				cols = [];
 			}
-			const cols = await res.json();
+			if (!cols || cols.length === 0) {
+				const res = await postUrlEncoded('/universal/describe-table', params);
+				if (!res.ok) {
+					let details = '';
+					try { details = await res.text(); } catch (e) { details = ''; }
+					alert('No se pudo leer columnas de la tabla' + (details ? (': ' + details) : ''));
+					return;
+				}
+				cols = await res.json();
+			}
 			let datalist = document.getElementById('destColumnsDatalist');
 			if (!datalist) {
 				datalist = document.createElement('datalist');
@@ -444,9 +819,20 @@
 				document.body.appendChild(datalist);
 			}
 			datalist.innerHTML = '';
+			const metaByName = new Map();
+			if (Array.isArray(metas)) {
+				for (const m of metas) {
+					if (m && m.name) metaByName.set(m.name, m);
+				}
+			}
 			for (const c of cols) {
 				const opt = document.createElement('option');
 				opt.value = c;
+				const m = metaByName.get(c);
+				if (m && m.typeName) {
+					const nullable = (m.nullable === false) ? ' NOT NULL' : '';
+					opt.label = (m.typeName + nullable).trim();
+				}
 				datalist.appendChild(opt);
 			}
 		}
@@ -464,7 +850,9 @@
 			} catch (e) {
 				addMappingRow({});
 			}
-			refreshTables();
+			refreshTables().catch(e => {
+				alert('No se pudo cargar tablas del destino: ' + (e && e.message ? e.message : String(e)));
+			});
 		})();
 	</script>
 </body>

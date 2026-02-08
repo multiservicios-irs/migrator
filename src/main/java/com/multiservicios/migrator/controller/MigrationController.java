@@ -247,7 +247,7 @@ public class MigrationController {
 			@RequestParam("dbDestinoPassword") String dbDestinoPassword,
 			@RequestParam("dbDestinoDriver") String dbDestinoDriver,
 			@RequestParam("sql") String sql,
-			@RequestParam(name = "limit", defaultValue = "20") int limit,
+			@RequestParam(name = "limit", defaultValue = "5") int limit,
 			@RequestParam("mappings") String mappingsJson,
 			Model model) {
 		HikariDataSource ds = null;

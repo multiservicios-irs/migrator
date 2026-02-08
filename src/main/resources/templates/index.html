@@ -13,13 +13,15 @@
 			<a href="/universal" class="rounded-lg border px-4 py-2 hover:bg-slate-50">Modo Universal</a>
 		</div>
 
-		<div th:if="${flash}" class="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900" th:text="${flash}"></div>
+		<div id="flashContainer">
+			<div th:if="${flash}" class="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900" th:text="${flash}"></div>
+		</div>
 
 		<!-- Connection Profile -->
 		<div class="rounded-2xl shadow border bg-white">
 			<div class="p-4 space-y-3">
 				<h2 class="text-lg font-medium">0. Bases (Origen y Destino)</h2>
-				<form id="mainForm" method="post" action="/test-connection" class="grid grid-cols-1 md:grid-cols-2 gap-4 items-end" onsubmit="return syncMappingsToJson(event);">
+				<form id="mainForm" method="post" action="/test-connection" class="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
 					<div>
 						<label class="text-sm text-slate-700">DB Origen (Nombre)</label>
 						<input id="dbOrigenName" type="text" name="dbOrigenName" class="mt-2 w-full rounded-lg border px-3 py-2 font-semibold" th:value="${dbOrigenName}" placeholder="Ej: deliStore" oninput="syncDbNameToUrl('origen');" />
@@ -67,12 +69,21 @@
 					<!-- SQL Extract -->
 					<div class="md:col-span-2 rounded-2xl shadow border bg-white -mx-4">
 						<div class="p-4 space-y-3">
-							<h2 class="text-lg font-medium">1. Consulta SQL (DB Origen)</h2>
+							<div class="flex items-center justify-between gap-3">
+								<h2 class="text-lg font-medium">1. Consulta SQL (DB Origen)</h2>
+								<button type="button" id="sqlHistoryClearBtn" class="rounded-lg border px-3 py-2 hover:bg-slate-50" title="Limpiar historial" aria-label="Limpiar historial">×</button>
+							</div>
 							<textarea name="sql" class="w-full rounded-lg border px-3 py-2 font-mono text-sm" rows="6" placeholder="select 1 as ID, 'Producto demo' as NOMBRE, 10 as CANTIDAD" th:text="${sql}"></textarea>
+							<div class="flex flex-wrap gap-3 items-end">
+								<div class="w-full md:w-96">
+									<label class="text-sm text-slate-700">Historial (últimas 10)</label>
+									<select id="sqlHistorySelect" class="mt-2 w-full rounded-lg border px-3 py-2 text-sm"></select>
+								</div>
+							</div>
 							<div class="flex flex-wrap gap-3 items-end">
 								<div>
 									<label class="text-sm text-slate-700">Límite preview</label>
-									<input type="number" name="limit" value="1" min="1" max="500" class="mt-2 w-40 rounded-lg border px-3 py-2" />
+									<input type="number" name="limit" value="5" min="1" max="500" class="mt-2 w-40 rounded-lg border px-3 py-2" />
 								</div>
 								<button type="submit" formaction="/preview" class="rounded-lg border px-4 py-2 hover:bg-slate-50">Probar SQL</button>
 							</div>
@@ -81,8 +92,8 @@
 					</div>
 
 					<!-- Preview -->
-					<div class="md:col-span-2 rounded-2xl shadow border bg-white -mx-4" th:if="${previewRows}">
-						<div class="p-4 space-y-3">
+					<div id="previewContainer" class="md:col-span-2 rounded-2xl shadow border bg-white -mx-4" th:style="${previewRows} ? '' : 'display:none;'">
+						<div class="p-4 space-y-3" th:if="${previewRows}">
 							<h2 class="text-lg font-medium">Preview</h2>
 							<div class="overflow-auto">
 								<table class="min-w-full text-sm">
@@ -142,14 +153,16 @@
 					<button type="submit" form="mainForm" formaction="/run" name="dryRun" value="false" class="rounded-lg bg-slate-900 text-white px-4 py-2 hover:bg-slate-800">Ejecutar Migración</button>
 					<button type="submit" form="mainForm" formaction="/run" name="dryRun" value="true" class="rounded-lg border px-4 py-2 hover:bg-slate-50">Dry Run</button>
 				</div>
-				<div th:if="${runResult}" class="text-sm text-slate-700">
-					Resultado: total=<span th:text="${runResult.total}"></span>, ok=<span th:text="${runResult.ok}"></span>, fail=<span th:text="${runResult.fail}"></span>, dryRun=<span th:text="${runResult.dryRun}"></span>
+				<div id="runResultContainer" class="text-sm text-slate-700" th:style="${runResult} ? '' : 'display:none;'">
+					<div th:if="${runResult}">
+						Resultado: total=<span th:text="${runResult.total}"></span>, ok=<span th:text="${runResult.ok}"></span>, fail=<span th:text="${runResult.fail}"></span>, dryRun=<span th:text="${runResult.dryRun}"></span>
+					</div>
 				</div>
 			</div>
 		</div>
 
 		<!-- Logs -->
-		<div class="rounded-2xl shadow border bg-white">
+		<div id="logsContainer" class="rounded-2xl shadow border bg-white">
 			<div class="p-4 space-y-3">
 				<div class="flex items-center justify-between gap-3">
 					<h2 class="text-lg font-medium">4. Logs</h2>
@@ -175,6 +188,221 @@
 	</datalist>
 
 	<script>
+		// ============ SUBMIT SIN RECARGAR (AJAX HTML swap) ============
+		function replaceOrRemoveById(id, nextDoc) {
+			const nextEl = nextDoc.getElementById(id);
+			const curEl = document.getElementById(id);
+			if (nextEl && curEl) {
+				curEl.replaceWith(nextEl);
+				return;
+			}
+			if (!nextEl && curEl) {
+				curEl.remove();
+			}
+			if (nextEl && !curEl) {
+				// Si no existe en el DOM actual, lo ignoramos para evitar “inventar” estructura.
+			}
+		}
+
+		// ============ HISTORIAL SQL (localStorage) ============
+		const SQL_HISTORY_KEY = 'migrator.sqlHistory.v1';
+		const SQL_HISTORY_MAX = 10;
+
+		function getSqlTextarea(form) {
+			if (form && typeof form.querySelector === 'function') {
+				const el = form.querySelector('textarea[name="sql"]');
+				if (el) return el;
+			}
+			return document.querySelector('textarea[name="sql"]');
+		}
+
+		function readSqlHistory() {
+			try {
+				const raw = window.localStorage ? localStorage.getItem(SQL_HISTORY_KEY) : null;
+				if (!raw) return [];
+				const parsed = JSON.parse(raw);
+				return Array.isArray(parsed) ? parsed.filter(v => typeof v === 'string') : [];
+			} catch (e) {
+				return [];
+			}
+		}
+
+		function writeSqlHistory(list) {
+			try {
+				if (!window.localStorage) return;
+				localStorage.setItem(SQL_HISTORY_KEY, JSON.stringify(list || []));
+			} catch (e) {
+			}
+		}
+
+		function addToSqlHistory(sql) {
+			const value = (sql || '').trim();
+			if (!value) return;
+			const list = readSqlHistory();
+			const normalized = value.replace(/\s+/g, ' ').trim().toLowerCase();
+			const next = [value];
+			for (const item of list) {
+				if ((item || '').replace(/\s+/g, ' ').trim().toLowerCase() === normalized) continue;
+				next.push(item);
+				if (next.length >= SQL_HISTORY_MAX) break;
+			}
+			writeSqlHistory(next);
+		}
+
+		function labelForSql(sql) {
+			const oneLine = (sql || '').replace(/\s+/g, ' ').trim();
+			if (!oneLine) return '(vacío)';
+			return oneLine.length > 120 ? (oneLine.substring(0, 117) + '...') : oneLine;
+		}
+
+		function renderSqlHistorySelect() {
+			const select = document.getElementById('sqlHistorySelect');
+			if (!select) return;
+			const list = readSqlHistory();
+			select.innerHTML = '';
+			if (!list.length) {
+				const opt = document.createElement('option');
+				opt.value = '';
+				opt.textContent = 'Sin historial';
+				select.appendChild(opt);
+				select.disabled = true;
+				return;
+			}
+			select.disabled = false;
+			list.forEach((sql, idx) => {
+				const opt = document.createElement('option');
+				opt.value = String(idx);
+				opt.textContent = labelForSql(sql);
+				select.appendChild(opt);
+			});
+		}
+
+		function loadSelectedSqlFromHistory() {
+			const select = document.getElementById('sqlHistorySelect');
+			if (!select || select.disabled) return;
+			const idx = parseInt(select.value, 10);
+			if (Number.isNaN(idx)) return;
+			const list = readSqlHistory();
+			const sql = list[idx];
+			if (!sql) return;
+			const textarea = getSqlTextarea(null);
+			if (!textarea) return;
+			textarea.value = sql;
+			// Mantener consistente el nodo de texto inicial del textarea (por si se inspecciona/serializa HTML)
+			textarea.textContent = sql;
+			textarea.focus();
+		}
+
+		function requestSqlPreview() {
+			const form = document.getElementById('mainForm');
+			if (!form) return;
+			const previewBtn = form.querySelector('button[type="submit"][formaction="/preview"]');
+			if (!previewBtn) return;
+			// Click para que el navegador setee evt.submitter correctamente
+			previewBtn.click();
+		}
+
+		function clearSqlHistory() {
+			try {
+				if (!window.localStorage) return;
+				localStorage.removeItem(SQL_HISTORY_KEY);
+			} catch (e) {
+			}
+			renderSqlHistorySelect();
+		}
+
+		function initSqlHistoryUi() {
+			renderSqlHistorySelect();
+			const clearBtn = document.getElementById('sqlHistoryClearBtn');
+			if (clearBtn) clearBtn.addEventListener('click', clearSqlHistory);
+			const select = document.getElementById('sqlHistorySelect');
+			if (select) select.addEventListener('change', function () {
+				loadSelectedSqlFromHistory();
+				requestSqlPreview();
+			});
+		}
+
+		document.addEventListener('DOMContentLoaded', initSqlHistoryUi);
+
+		function maybeStoreSqlHistory(actionUrl, form) {
+			try {
+				if (!actionUrl || !/\/preview$/.test(actionUrl)) return;
+				const textarea = getSqlTextarea(form);
+				if (!textarea) return;
+				addToSqlHistory(textarea.value);
+				renderSqlHistorySelect();
+			} catch (e) {
+			}
+		}
+		// ============ FIN HISTORIAL SQL ============
+
+		async function ajaxSubmitForm(evt) {
+			const form = evt.target;
+			if (!form || !(form instanceof HTMLFormElement)) return;
+			// No recargar
+			evt.preventDefault();
+
+			// Serializar/validar mapeos como antes
+			try {
+				const ok = syncMappingsToJson(evt);
+				if (!ok) return;
+			} catch (e) {
+				// Si falla, no bloqueamos el submit por defecto
+			}
+
+			const submitter = evt.submitter ? evt.submitter : null;
+			const actionUrl = (submitter && submitter.getAttribute('formaction')) ? submitter.getAttribute('formaction') : (form.getAttribute('action') || window.location.pathname);
+
+			// Guardar SQL en historial SOLO cuando se hace Preview ("Probar SQL")
+			maybeStoreSqlHistory(actionUrl, form);
+
+			const params = new URLSearchParams();
+			const fd = new FormData(form);
+			for (const [k, v] of fd.entries()) {
+				if (k == null) continue;
+				params.append(k, v == null ? '' : String(v));
+			}
+			// Incluir name/value del botón clickeado (necesario para dryRun, etc.)
+			if (submitter && submitter.name) {
+				params.set(submitter.name, submitter.value == null ? '' : String(submitter.value));
+			}
+
+			// UX mínima: deshabilitar submitter mientras corre
+			if (submitter) submitter.disabled = true;
+			try {
+				const resp = await fetch(actionUrl, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+					body: params.toString()
+				});
+				const html = await resp.text();
+				const nextDoc = new DOMParser().parseFromString(html, 'text/html');
+
+				// Reemplazar secciones dinámicas
+				replaceOrRemoveById('flashContainer', nextDoc);
+				replaceOrRemoveById('previewContainer', nextDoc);
+				replaceOrRemoveById('runResultContainer', nextDoc);
+				replaceOrRemoveById('logsContainer', nextDoc);
+				replaceOrRemoveById('sourceFieldsDatalist', nextDoc);
+				replaceOrRemoveById('targetFieldsDatalist', nextDoc);
+
+				// Mantener consistente el hidden JSON con lo que quedó en el DOM
+				try { syncMappingsToJson({ submitter: submitter }); } catch (e) {}
+			} catch (e) {
+				alert('No se pudo enviar sin recargar. Error: ' + (e && e.message ? e.message : e));
+			} finally {
+				if (submitter) submitter.disabled = false;
+			}
+		}
+
+		document.addEventListener('DOMContentLoaded', function () {
+			const f = document.getElementById('mainForm');
+			if (f) {
+				f.addEventListener('submit', ajaxSubmitForm);
+			}
+		});
+		// ============ FIN SUBMIT SIN RECARGAR ============
+
 		// ============ SINCRONIZACIÓN DB NAME <-> URL JDBC ============
 		function syncDbNameToUrl(tipo) {
 			const nameInput = tipo === 'origen' ? document.getElementById('dbOrigenName') : document.getElementById('dbDestinoName');
